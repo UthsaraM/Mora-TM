@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
 import { MainScreen } from './components/MainScreen';
-import { DailyReportModal } from './components/DailyReportModal';
 import { LandingPage } from './components/LandingPage';
 import { AdminDashboard } from './components/AdminDashboard';
 import {
@@ -27,8 +26,6 @@ export default function App() {
   const [occupancyList, setOccupancyList] = useState<OccupancyStudent[]>([]);
   const [todaySummary, setTodaySummary] = useState<TodayAttendanceSummary | null>(null);
   const [recentTransactions, setRecentTransactions] = useState<TransactionRecord[]>([]);
-
-  const [isDailyReportOpen, setIsDailyReportOpen] = useState(false);
 
   // 1. Fetch Server Status
   const fetchStatus = useCallback(async () => {
@@ -191,7 +188,6 @@ export default function App() {
       {/* Header with User Mode indicator and Landing Page return */}
       <Header
         serverStatus={serverStatus}
-        onOpenReport={() => setIsDailyReportOpen(true)}
         onExitToLanding={() => setAppMode('LANDING')}
         onSwitchToAdmin={() => {
           if (adminToken) {
@@ -210,8 +206,7 @@ export default function App() {
           onTransactionSuccess={handleTransactionSuccess}
           recentTransactions={recentTransactions}
           occupancyList={occupancyList}
-          todaySummary={todaySummary}
-          onOpenReport={() => setIsDailyReportOpen(true)}
+          students={students}
           onRefreshOccupancy={fetchOccupancy}
           onSwitchToAdmin={() => setAppMode('LANDING')}
         />
@@ -225,12 +220,6 @@ export default function App() {
           </div>
           <div className="flex items-center gap-4">
             <button
-              onClick={() => setIsDailyReportOpen(true)}
-              className="hover:text-blue-700 underline cursor-pointer"
-            >
-              Daily Report
-            </button>
-            <button
               onClick={() => setAppMode('LANDING')}
               className="hover:text-blue-700 underline cursor-pointer"
             >
@@ -239,12 +228,6 @@ export default function App() {
           </div>
         </div>
       </footer>
-
-      {/* Daily Report Modal */}
-      <DailyReportModal
-        isOpen={isDailyReportOpen}
-        onClose={() => setIsDailyReportOpen(false)}
-      />
     </div>
   );
 }

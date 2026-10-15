@@ -23,10 +23,12 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Ensure persistent data directory exists
-const DATA_DIR = path.resolve(__dirname, 'data');
-const DB_FILE = path.resolve(DATA_DIR, 'classroom_db.json');
+const isVercel = Boolean(process.env.VERCEL);
+const DATA_DIR = isVercel ? '/tmp' : path.resolve(__dirname, 'data');
+const DB_FILE = isVercel ? path.resolve('/tmp', 'classroom_db.json') : path.resolve(DATA_DIR, 'classroom_db.json');
+const BUNDLED_DB_FILE = path.resolve(__dirname, 'data', 'classroom_db.json');
 
-if (!fs.existsSync(DATA_DIR)) {
+if (!isVercel && !fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
@@ -74,6 +76,16 @@ function createDefaultAdminAuth(): AdminAuthData {
 }
 
 function loadDatabase(): DatabaseSchema {
+  // If in Vercel serverless environment, copy seed database into /tmp if not already present
+  if (isVercel && !fs.existsSync(DB_FILE) && fs.existsSync(BUNDLED_DB_FILE)) {
+    try {
+      const bundledRaw = fs.readFileSync(BUNDLED_DB_FILE, 'utf-8');
+      fs.writeFileSync(DB_FILE, bundledRaw, 'utf-8');
+    } catch (e) {
+      console.error('Failed to copy bundled seed database to /tmp on Vercel:', e);
+    }
+  }
+
   if (fs.existsSync(DB_FILE)) {
     try {
       const raw = fs.readFileSync(DB_FILE, 'utf-8');
@@ -95,6 +107,17 @@ function loadDatabase(): DatabaseSchema {
       return data;
     } catch (err) {
       console.error('Failed to parse database file, reinitializing fallback:', err);
+    }
+  }
+
+  // If local DB_FILE does not exist, check if BUNDLED_DB_FILE exists
+  if (fs.existsSync(BUNDLED_DB_FILE)) {
+    try {
+      const raw = fs.readFileSync(BUNDLED_DB_FILE, 'utf-8');
+      const data = JSON.parse(raw);
+      return data;
+    } catch (err) {
+      console.error('Failed to read bundled database:', err);
     }
   }
 
@@ -121,12 +144,21 @@ function loadDatabase(): DatabaseSchema {
   return initialDb;
 }
 
-// Atomic file write to prevent corruption
+// Atomic file write with safe fallback
 function saveDatabase(data: DatabaseSchema): void {
   data.meta.lastUpdated = new Date().toISOString();
-  const tempFile = `${DB_FILE}.tmp.${Date.now()}`;
-  fs.writeFileSync(tempFile, JSON.stringify(data, null, 2), 'utf-8');
-  fs.renameSync(tempFile, DB_FILE);
+  try {
+    const tempFile = `${DB_FILE}.tmp.${Date.now()}`;
+    fs.writeFileSync(tempFile, JSON.stringify(data, null, 2), 'utf-8');
+    fs.renameSync(tempFile, DB_FILE);
+  } catch (err) {
+    // Direct write fallback
+    try {
+      fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (e) {
+      console.error('Failed to write database file:', e);
+    }
+  }
 }
 
 // In-memory cache + file sync
@@ -513,8 +545,10 @@ app.post('/api/admin/students', requireAdmin, (req: Request, res: Response) => {
 
 // 9. Protected: Edit or Deactivate a Student (Admin ONLY)
 app.put('/api/admin/students/:indexNumber', requireAdmin, (req: Request, res: Response) => {
-  const indexNumber = String(req.params.indexNumber).trim();
-  const student = db.students[indexNumber];
+  const query = String(req.params.indexNumber).trim().toLowerCase();
+  const student = Object.values(db.students).find(
+    s => s.indexNumber.trim().toLowerCase() === query
+  );
 
   if (!student) {
     res.status(404).json({ error: 'Student not found.' });
@@ -533,24 +567,54 @@ app.put('/api/admin/students/:indexNumber', requireAdmin, (req: Request, res: Re
   res.json({ success: true, student, message: 'Student updated successfully.' });
 });
 
-// 10. Lookup student by index number (Public)
+// 9b. Quick Search Students (Case-insensitive by Index Number or Student Name)
+app.get('/api/students/search', (req: Request, res: Response) => {
+  const query = req.query.q ? String(req.query.q).trim().toLowerCase() : '';
+  if (!query) {
+    res.json({ count: 0, results: [] });
+    return;
+  }
+
+  const all = Object.values(db.students);
+  const matched = all.filter(s =>
+    s.indexNumber.toLowerCase().includes(query) ||
+    s.studentName.toLowerCase().includes(query)
+  );
+
+  // Limit to top 15 results for fast UI
+  const results = matched.slice(0, 15).map(s => ({
+    indexNumber: s.indexNumber,
+    studentName: s.studentName,
+    isActive: s.isActive !== false,
+    currentStatus: db.currentStatuses[s.indexNumber] || 'OUTSIDE',
+  }));
+
+  res.json({
+    count: matched.length,
+    results,
+  });
+});
+
+// 10. Lookup student by index number (Case-insensitive, Public)
 app.get('/api/students/:indexNumber', (req: Request, res: Response) => {
-  const indexNumber = String(req.params.indexNumber).trim();
-  const student = db.students[indexNumber];
+  const query = String(req.params.indexNumber).trim().toLowerCase();
+  const student = Object.values(db.students).find(
+    s => s.indexNumber.trim().toLowerCase() === query
+  );
 
   if (!student) {
     res.status(404).json({ error: 'Student not found. Please check the index number.' });
     return;
   }
 
-  const currentStatus = db.currentStatuses[indexNumber] || 'OUTSIDE';
+  const currentStatus = db.currentStatuses[student.indexNumber] || 'OUTSIDE';
   res.json({
     student,
     currentStatus,
   });
 });
 
-// 11. Record Entry or Exit Transaction (User & Admin)
+// 11. Record Entry or Exit Transaction (Case-insensitive index lookup, User & Admin)
 app.post('/api/transactions', (req: Request, res: Response) => {
   if (isTransactionLocked) {
     res.status(429).json({ error: 'Processing another transaction. Please try again in a moment.' });
@@ -565,13 +629,16 @@ app.post('/api/transactions', (req: Request, res: Response) => {
       return;
     }
 
-    const indexNumber = String(rawIndex).trim();
-    const student = db.students[indexNumber];
+    const query = String(rawIndex).trim();
+    // Case-insensitive student lookup
+    const student = Object.values(db.students).find(
+      s => s.indexNumber.trim().toLowerCase() === query.toLowerCase()
+    );
 
     if (!student) {
       res.status(404).json({
         error: 'Student not found. Please check the index number.',
-        notFoundIndex: indexNumber,
+        notFoundIndex: query,
       });
       return;
     }
@@ -579,11 +646,13 @@ app.post('/api/transactions', (req: Request, res: Response) => {
     if (student.isActive === false) {
       res.status(403).json({
         error: 'Student account is deactivated. Please contact the administrator.',
-        notFoundIndex: indexNumber,
+        notFoundIndex: student.indexNumber,
       });
       return;
     }
 
+    // Always use canonical registered indexNumber
+    const indexNumber = student.indexNumber;
     const currentStatus = db.currentStatuses[indexNumber] || 'OUTSIDE';
     const now = new Date();
     const colomboDate = getColomboDateString(now);
@@ -910,7 +979,11 @@ async function startServer() {
   });
 }
 
-startServer().catch(err => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
-});
+export default app;
+
+if (!isVercel) {
+  startServer().catch(err => {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  });
+}

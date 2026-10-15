@@ -152,14 +152,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                   <span>View live current classroom occupancy</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                  <span>View today's attendance summary</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                  <span>View daily attendance reports</span>
-                </div>
               </div>
             </div>
 
