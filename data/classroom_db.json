@@ -1,0 +1,127 @@
+{
+  "students": {
+    "22001": {
+      "indexNumber": "22001",
+      "studentName": "Uthsara Manul",
+      "importedAt": "2026-10-15T08:47:08.570Z"
+    },
+    "22002": {
+      "indexNumber": "22002",
+      "studentName": "Kasun Perera",
+      "importedAt": "2026-10-15T08:47:08.570Z"
+    },
+    "22003": {
+      "indexNumber": "22003",
+      "studentName": "Nimali Fernando",
+      "importedAt": "2026-10-15T08:47:08.570Z",
+      "isActive": true
+    },
+    "22004": {
+      "indexNumber": "22004",
+      "studentName": "Dinithi Jayasinghe",
+      "importedAt": "2026-10-15T08:47:08.570Z"
+    },
+    "22005": {
+      "indexNumber": "22005",
+      "studentName": "Sandun Wickramasinghe",
+      "importedAt": "2026-10-15T08:47:08.570Z"
+    }
+  },
+  "transactions": [
+    {
+      "id": "TXN-1792056277828-4ZDUF",
+      "studentIndexNumber": "22001",
+      "studentName": "Uthsara Manul",
+      "venue": "Classroom 1",
+      "type": "ENTRY",
+      "date": "2026-10-15",
+      "timestamp": "2026-10-15T09:24:37.827Z",
+      "formattedTime": "02:54 PM",
+      "greeting": "Good Afternoon",
+      "statusAfter": "INSIDE"
+    },
+    {
+      "id": "TXN-1792056277857-QGVZW",
+      "studentIndexNumber": "22002",
+      "studentName": "Kasun Perera",
+      "venue": "Classroom 1",
+      "type": "ENTRY",
+      "date": "2026-10-15",
+      "timestamp": "2026-10-15T09:24:37.857Z",
+      "formattedTime": "02:54 PM",
+      "greeting": "Good Afternoon",
+      "statusAfter": "INSIDE"
+    },
+    {
+      "id": "TXN-1792056277884-SHHAU",
+      "studentIndexNumber": "22001",
+      "studentName": "Uthsara Manul",
+      "venue": "Classroom 1",
+      "type": "EXIT",
+      "date": "2026-10-15",
+      "timestamp": "2026-10-15T09:24:37.883Z",
+      "formattedTime": "02:54 PM",
+      "greeting": "Good Afternoon",
+      "statusAfter": "OUTSIDE"
+    },
+    {
+      "id": "TXN-1792056277912-VUBOX",
+      "studentIndexNumber": "22001",
+      "studentName": "Uthsara Manul",
+      "venue": "Classroom 1",
+      "type": "ENTRY",
+      "date": "2026-10-15",
+      "timestamp": "2026-10-15T09:24:37.911Z",
+      "formattedTime": "02:54 PM",
+      "greeting": "Good Afternoon",
+      "statusAfter": "INSIDE"
+    },
+    {
+      "id": "TXN-1792056285446-BKNPC",
+      "studentIndexNumber": "22003",
+      "studentName": "Nimali Fernando",
+      "venue": "Classroom 1",
+      "type": "EXIT",
+      "date": "2026-10-15",
+      "timestamp": "2026-10-15T09:24:45.446Z",
+      "formattedTime": "02:54 PM",
+      "greeting": "Good Afternoon",
+      "statusAfter": "OUTSIDE",
+      "isCorrected": true,
+      "correctionId": "CORR-1792056295642-3AF7",
+      "correctionReason": "Student tapped entry by mistake while departing classroom",
+      "correctedBy": "ProctorPerera",
+      "correctionTimestamp": "2026-10-15T09:24:55.642Z"
+    }
+  ],
+  "currentStatuses": {
+    "22001": "INSIDE",
+    "22002": "INSIDE",
+    "22003": "OUTSIDE"
+  },
+  "meta": {
+    "initializedAt": "2026-10-15T08:46:40.597Z",
+    "isPreloadedSample": true,
+    "lastUpdated": "2026-10-15T09:24:55.643Z"
+  },
+  "corrections": [
+    {
+      "id": "CORR-1792056295642-3AF7",
+      "transactionId": "TXN-1792056285446-BKNPC",
+      "studentIndexNumber": "22003",
+      "studentName": "Nimali Fernando",
+      "originalType": "ENTRY",
+      "correctedType": "EXIT",
+      "reason": "Student tapped entry by mistake while departing classroom",
+      "adminIdentity": "ProctorPerera",
+      "timestamp": "2026-10-15T09:24:55.642Z",
+      "formattedTime": "02:54 PM",
+      "date": "2026-10-15"
+    }
+  ],
+  "admin": {
+    "passwordHash": "3cf6ceb63fb51c9ca8be50a22cbe74d37c89bfca3b5a0066ba43203fa3dbf9f521e6a0956ccc1b52d07ba813a35746ad6274b2d74f5f040d5f3097e860305d46",
+    "salt": "b2eb9b7d4119aee6b0620dc9a9358b60",
+    "updatedAt": "2026-10-15T09:24:16.956Z"
+  }
+}

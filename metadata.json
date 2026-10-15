@@ -1,0 +1,6 @@
+{
+  "name": "Classroom 1 - Student Entry & Exit System",
+  "description": "Fast and reliable student entry and exit tracking system for Classroom 1 with university index number lookup, Asia/Colombo timezone support, and daily attendance reporting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
