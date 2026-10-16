@@ -86,6 +86,26 @@ export interface TransactionResponse {
   status: StudentStatus;
 }
 
+export interface UserSession {
+  token: string;
+  userName: string;
+  role: 'OPERATOR' | 'STUDENT_USER';
+  authenticatedAt: string;
+  domain: string;
+}
+
+export interface AuthConfig {
+  appUrl: string;
+  authorizedDomain: string;
+  allowedOrigins: string[];
+  systemName: string;
+  corsEnabled: boolean;
+  authMethods: {
+    userMode: string;
+    adminMode: string;
+  };
+}
+
 export interface ServerStatus {
   online: boolean;
   venue: string;
@@ -96,6 +116,35 @@ export interface ServerStatus {
   currentTimeColombo: string;
   currentDateColombo: string;
   storageType: string;
+  authorizedDomain?: string;
+  appUrl?: string;
+  authEnabled?: boolean;
 }
 
 export type AppMode = 'LANDING' | 'USER' | 'ADMIN';
+
+export interface VerifiedAdmin {
+  id: string;
+  name: string;
+  email: string;
+  staffId: string;
+  role: string;
+  isVerified: boolean;
+  status: 'ACTIVE' | 'SUSPENDED';
+  addedAt: string;
+  lastLoginAt?: string;
+}
+
+export interface SystemSettings {
+  allowUserAttendanceLookup: boolean;
+  hidePublicScanStreamOnKiosk: boolean;
+}
+
+export interface StudentAttendanceHistory {
+  student: Student;
+  currentStatus: StudentStatus;
+  totalSessions: number;
+  totalMinutesInClass: number;
+  sessions: AttendanceSession[];
+}
+

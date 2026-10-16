@@ -1,0 +1,79 @@
+{
+  "entities": {
+    "student": {
+      "title": "Student",
+      "description": "Registered student record in Classroom 1 entry/exit system",
+      "type": "object",
+      "properties": {
+        "indexNumber": { "type": "string", "maxLength": 64 },
+        "studentName": { "type": "string", "maxLength": 128 },
+        "importedAt": { "type": "string", "maxLength": 64 },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["indexNumber", "studentName"]
+    },
+    "transaction": {
+      "title": "TransactionRecord",
+      "description": "Historical entry or exit transaction record in Classroom 1",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "studentIndexNumber": { "type": "string", "maxLength": 64 },
+        "studentName": { "type": "string", "maxLength": 128 },
+        "venue": { "type": "string", "maxLength": 64 },
+        "type": { "type": "string", "enum": ["ENTRY", "EXIT"] },
+        "date": { "type": "string", "maxLength": 32 },
+        "timestamp": { "type": "string", "maxLength": 64 },
+        "formattedTime": { "type": "string", "maxLength": 32 },
+        "greeting": { "type": "string", "maxLength": 64 },
+        "statusAfter": { "type": "string", "enum": ["INSIDE", "OUTSIDE"] },
+        "isCorrected": { "type": "boolean" },
+        "correctionId": { "type": "string", "maxLength": 64 },
+        "correctionReason": { "type": "string", "maxLength": 256 },
+        "correctedBy": { "type": "string", "maxLength": 128 },
+        "correctionTimestamp": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "studentIndexNumber", "studentName", "venue", "type", "date", "timestamp", "formattedTime", "statusAfter"]
+    },
+    "occupancy": {
+      "title": "StudentOccupancyStatus",
+      "description": "Real-time occupancy status per student index number",
+      "type": "object",
+      "properties": {
+        "indexNumber": { "type": "string", "maxLength": 64 },
+        "status": { "type": "string", "enum": ["INSIDE", "OUTSIDE"] },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["indexNumber", "status"]
+    },
+    "admin": {
+      "title": "Admin",
+      "description": "Admin access control document",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["admin", "superadmin"] },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["email", "role"]
+    }
+  },
+  "firestore": {
+    "/students/{studentId}": {
+      "schema": "student",
+      "description": "Collection of students registered in Classroom 1"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "transaction",
+      "description": "Collection of all timestamped entry and exit transactions"
+    },
+    "/occupancy/{indexNumber}": {
+      "schema": "occupancy",
+      "description": "Current inside/outside status tracking per student"
+    },
+    "/admins/{adminId}": {
+      "schema": "admin",
+      "description": "Admin accounts with privileges to manage roster and corrections"
+    }
+  }
+}

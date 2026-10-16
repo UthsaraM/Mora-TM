@@ -10,20 +10,23 @@ import {
   AlertCircle,
   GraduationCap,
   KeyRound,
+  Cloud,
 } from 'lucide-react';
 import { getColomboFullDateTimeString } from '../utils/time';
-import { ServerStatus } from '../types';
+import { ServerStatus, VerifiedAdmin } from '../types';
 
 interface LandingPageProps {
   serverStatus: ServerStatus | null;
   onContinueAsUser: () => void;
   onAdminLoginSuccess: (token: string, adminName: string) => void;
+  onOpenDatabaseInfo?: () => void;
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({
   serverStatus,
   onContinueAsUser,
   onAdminLoginSuccess,
+  onOpenDatabaseInfo,
 }) => {
   const [timeState, setTimeState] = useState<{ dateStr: string; timeStr: string }>({
     dateStr: '',
@@ -32,8 +35,32 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [adminPassword, setAdminPassword] = useState('');
   const [adminName, setAdminName] = useState('');
+  const [verifiedAdmins, setVerifiedAdmins] = useState<VerifiedAdmin[]>([]);
+  const [selectedAdminId, setSelectedAdminId] = useState<string>('');
+  const [customIdentifier, setCustomIdentifier] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+
+  // Fetch list of verified administrators
+  const fetchVerifiedAdmins = async () => {
+    try {
+      const res = await fetch('/api/admin/verified-people');
+      if (res.ok) {
+        const data = await res.json();
+        const admins: VerifiedAdmin[] = data.admins || [];
+        setVerifiedAdmins(admins);
+        if (admins.length > 0 && !selectedAdminId) {
+          setSelectedAdminId(admins[0].id);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load verified administrators:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchVerifiedAdmins();
+  }, []);
 
   useEffect(() => {
     setTimeState(getColomboFullDateTimeString());
@@ -50,27 +77,48 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       return;
     }
 
+    if (!selectedAdminId) {
+      setLoginError('Please select or specify a verified administrator.');
+      return;
+    }
+
+    if (selectedAdminId === 'OTHER' && !customIdentifier.trim()) {
+      setLoginError('Please enter your verified university email or staff ID.');
+      return;
+    }
+
     setIsSubmitting(true);
     setLoginError(null);
 
     try {
+      const payload: { password: string; adminId?: string; email?: string; adminName?: string } = {
+        password: adminPassword,
+      };
+
+      if (selectedAdminId === 'OTHER') {
+        payload.email = customIdentifier.trim();
+      } else {
+        payload.adminId = selectedAdminId;
+        const matched = verifiedAdmins.find(a => a.id === selectedAdminId);
+        if (matched) {
+          payload.adminName = matched.name;
+        }
+      }
+
       const res = await fetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          password: adminPassword,
-          adminName: adminName.trim() || 'Classroom 1 Administrator',
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || 'Incorrect administrator password.');
+        throw new Error(data.error || 'Incorrect administrator password or unverified account.');
       }
 
       onAdminLoginSuccess(data.token, data.adminName);
     } catch (err: any) {
-      setLoginError(err.message || 'Login failed. Please verify the password.');
+      setLoginError(err.message || 'Login failed. Please verify credentials.');
     } finally {
       setIsSubmitting(false);
     }
@@ -225,9 +273,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* Footer */}
       <footer className="bg-white border-t border-slate-200 py-3 text-center text-xs text-slate-500">
         <div className="max-w-4xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>Venue: Classroom 1 · Persistent Server Database</span>
+          <div className="flex items-center gap-2">
+            <span>Venue: Classroom 1 · Persistent Server Database</span>
+            {onOpenDatabaseInfo && (
+              <button
+                type="button"
+                onClick={onOpenDatabaseInfo}
+                className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium hover:bg-emerald-100 transition-colors cursor-pointer text-[11px]"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                <Cloud className="w-3 h-3 text-emerald-600" />
+                <span>Firebase Cloud Active (View Details)</span>
+              </button>
+            )}
+          </div>
           <span className="font-mono text-slate-400">
-            Current Server Storage: {serverStatus?.storageType || 'Active'}
+            Current Storage: {serverStatus?.storageType || 'Active'}
           </span>
         </div>
       </footer>
@@ -251,8 +312,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
 
             <form onSubmit={handleAdminLogin} className="p-6 space-y-4">
-              <div className="text-xs text-slate-600">
-                Please enter the administrator password to access student rosters, transaction corrections, and administrative controls.
+              <div className="flex items-center gap-2 p-2.5 bg-blue-50/70 border border-blue-200 rounded-xl text-blue-900 text-xs">
+                <ShieldCheck className="w-4 h-4 text-blue-700 shrink-0" />
+                <span>Verified personnel only. Administrative access is restricted to authorized university staff.</span>
               </div>
 
               {loginError && (
@@ -262,19 +324,51 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </div>
               )}
 
+              {/* Verified Administrator Selection */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Administrator Name (Optional)
+                  Verified Administrator Profile <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  value={adminName}
-                  onChange={(e) => setAdminName(e.target.value)}
-                  placeholder="e.g. Dr. Perera / Proctor A"
-                  className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <select
+                  value={selectedAdminId}
+                  onChange={(e) => setSelectedAdminId(e.target.value)}
+                  className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  {verifiedAdmins.map((admin) => (
+                    <option key={admin.id} value={admin.id}>
+                      {admin.name} ({admin.role} · {admin.staffId})
+                    </option>
+                  ))}
+                  <option value="OTHER">Enter other verified university email / staff ID...</option>
+                </select>
+                {selectedAdminId && selectedAdminId !== 'OTHER' && (
+                  <div className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500 font-mono">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                    <span>
+                      {verifiedAdmins.find(a => a.id === selectedAdminId)?.email} · Verified
+                    </span>
+                  </div>
+                )}
               </div>
 
+              {/* If OTHER selected, allow manual email / staffId input */}
+              {selectedAdminId === 'OTHER' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Verified Staff Email or Staff ID <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={customIdentifier}
+                    onChange={(e) => setCustomIdentifier(e.target.value)}
+                    placeholder="e.g. uthzaaawim@gmail.com or ADM-001"
+                    className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              )}
+
+              {/* Administrator Password (NO HINT) */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Administrator Password <span className="text-red-500">*</span>
@@ -288,9 +382,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   placeholder="Enter administrator password..."
                   className="w-full text-sm font-mono p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Default password: <code className="font-mono font-bold bg-slate-100 px-1 py-0.5 rounded text-blue-900">admin123</code> (can be changed in Admin Settings).
-                </p>
               </div>
 
               <div className="pt-2 flex justify-end gap-2">

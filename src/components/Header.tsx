@@ -8,6 +8,7 @@ interface HeaderProps {
   onExitToLanding: () => void;
   onSwitchToAdmin: () => void;
   isAdminAuthenticated: boolean;
+  onOpenDatabaseInfo?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -15,6 +16,7 @@ export const Header: React.FC<HeaderProps> = ({
   onExitToLanding,
   onSwitchToAdmin,
   isAdminAuthenticated,
+  onOpenDatabaseInfo,
 }) => {
   const [timeState, setTimeState] = useState<{ dateStr: string; timeStr: string }>({
     dateStr: '',

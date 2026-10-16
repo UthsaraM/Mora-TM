@@ -22,6 +22,12 @@ import {
   History,
   KeyRound,
   Filter,
+  Cloud,
+  UserPlus,
+  Trash2,
+  Shield,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import {
   Student,
@@ -30,6 +36,8 @@ import {
   DailyReportData,
   TransactionRecord,
   TransactionCorrection,
+  VerifiedAdmin,
+  SystemSettings,
 } from '../types';
 import { getColomboDateString, getColomboFullDateTimeString } from '../utils/time';
 
@@ -43,6 +51,7 @@ interface AdminDashboardProps {
   todaySummary: TodayAttendanceSummary | null;
   students: Student[];
   recentTransactions: TransactionRecord[];
+  onOpenDatabaseInfo?: () => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -55,8 +64,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   todaySummary,
   students,
   recentTransactions,
+  onOpenDatabaseInfo,
 }) => {
-  const [activeTab, setActiveTab] = useState<'students' | 'occupancy' | 'attendance' | 'reports' | 'corrections' | 'settings'>('students');
+  const [activeTab, setActiveTab] = useState<'students' | 'occupancy' | 'attendance' | 'reports' | 'corrections' | 'verified' | 'settings'>('students');
 
   // Time state
   const [timeState, setTimeState] = useState(getColomboFullDateTimeString());
@@ -64,6 +74,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const timer = setInterval(() => setTimeState(getColomboFullDateTimeString()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Verified Administrators state
+  const [verifiedPeople, setVerifiedPeople] = useState<VerifiedAdmin[]>([]);
+  const [isLoadingVerified, setIsLoadingVerified] = useState(false);
+  const [showAddVerifiedModal, setShowAddVerifiedModal] = useState(false);
+  const [newAdminName, setNewAdminName] = useState('');
+  const [newAdminEmail, setNewAdminEmail] = useState('');
+  const [newAdminStaffId, setNewAdminStaffId] = useState('');
+  const [newAdminRole, setNewAdminRole] = useState('Department Coordinator');
+  const [verifiedActionStatus, setVerifiedActionStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' });
+
+  // System Settings state
+  const [systemSettings, setSystemSettings] = useState<SystemSettings | null>(null);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   // Student management states
   const [studentSearch, setStudentSearch] = useState('');
@@ -107,6 +131,126 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [newPw, setNewPw] = useState('');
   const [pwStatus, setPwStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' });
 
+  // Fetch Verified Administrators
+  const fetchVerifiedPeople = async () => {
+    setIsLoadingVerified(true);
+    try {
+      const res = await fetch('/api/admin/verified-people', {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setVerifiedPeople(data.admins || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch verified people:', err);
+    } finally {
+      setIsLoadingVerified(false);
+    }
+  };
+
+  // Fetch Settings
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch('/api/settings');
+      if (res.ok) {
+        const data = await res.json();
+        setSystemSettings(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch settings:', err);
+    }
+  };
+
+  // Add Verified Person
+  const handleAddVerifiedPerson = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setVerifiedActionStatus({ type: null, message: '' });
+    try {
+      const res = await fetch('/api/admin/verified-people', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({
+          name: newAdminName,
+          email: newAdminEmail,
+          staffId: newAdminStaffId,
+          role: newAdminRole,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to add verified administrator.');
+      setVerifiedActionStatus({ type: 'success', message: data.message });
+      setNewAdminName('');
+      setNewAdminEmail('');
+      setNewAdminStaffId('');
+      setShowAddVerifiedModal(false);
+      fetchVerifiedPeople();
+    } catch (err: any) {
+      setVerifiedActionStatus({ type: 'error', message: err.message });
+    }
+  };
+
+  // Toggle Verified Administrator Status (Active / Suspended)
+  const handleToggleAdminStatus = async (admin: VerifiedAdmin) => {
+    const newStatus = admin.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+    try {
+      const res = await fetch(`/api/admin/verified-people/${admin.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update administrator status.');
+      fetchVerifiedPeople();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  // Delete Verified Administrator
+  const handleDeleteAdmin = async (id: string, name: string) => {
+    if (!confirm(`Are you sure you want to remove administrator ${name}?`)) return;
+    try {
+      const res = await fetch(`/api/admin/verified-people/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to remove administrator.');
+      fetchVerifiedPeople();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  // Toggle System Setting
+  const handleToggleSetting = async (key: keyof SystemSettings) => {
+    if (!systemSettings) return;
+    const updated = { ...systemSettings, [key]: !systemSettings[key] };
+    setSystemSettings(updated);
+    setIsSavingSettings(true);
+    try {
+      await fetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify(updated),
+      });
+    } catch (err) {
+      console.error('Failed to save settings:', err);
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
   // Load report data
   const fetchReport = async (dateStr: string) => {
     setIsLoadingReport(true);
@@ -139,10 +283,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   useEffect(() => {
+    fetchVerifiedPeople();
+    fetchSettings();
+  }, []);
+
+  useEffect(() => {
     if (activeTab === 'reports') {
       fetchReport(reportDate);
     } else if (activeTab === 'corrections') {
       fetchCorrections();
+    } else if (activeTab === 'verified') {
+      fetchVerifiedPeople();
     }
   }, [activeTab, reportDate]);
 
@@ -404,6 +555,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <span className="text-[10px] text-slate-400 uppercase">Asia/Colombo</span>
             </div>
 
+            {onOpenDatabaseInfo && (
+              <button
+                type="button"
+                onClick={onOpenDatabaseInfo}
+                className="inline-flex items-center gap-1.5 bg-emerald-950/70 hover:bg-emerald-900 text-emerald-200 border border-emerald-700/80 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                title="View Firebase Firestore & Cloud Setup Details"
+              >
+                <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="hidden sm:inline">Firebase Cloud</span>
+              </button>
+            )}
+
             <button
               onClick={onSwitchToUserMode}
               className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-700 transition-colors cursor-pointer"
@@ -430,6 +593,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             { id: 'attendance', label: 'Attendance & Logs', icon: History, count: recentTransactions.length },
             { id: 'reports', label: 'Daily Reports', icon: FileSpreadsheet },
             { id: 'corrections', label: 'Transaction Corrections', icon: Edit3, count: correctionsList.length },
+            { id: 'verified', label: 'Verified People', icon: ShieldCheck, count: verifiedPeople.length },
             { id: 'settings', label: 'Admin Settings', icon: KeyRound },
           ].map((tab) => {
             const Icon = tab.icon;
@@ -1015,6 +1179,248 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         )}
 
         {/* ==================================================== */}
+        {/* TAB: VERIFIED PEOPLE & ACCESS CONTROL                */}
+        {/* ==================================================== */}
+        {activeTab === 'verified' && (
+          <div className="space-y-6">
+            {/* Header with Title and Add Button */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-blue-700" />
+                  <h3 className="text-base font-bold font-mono text-slate-900 uppercase">
+                    Verified People for Admin Panel
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-900 text-[11px] font-bold font-mono">
+                    {verifiedPeople.length} Verified
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1 max-w-2xl">
+                  Only registered university personnel with verified active status can log in to the Classroom 1 Administrator Panel.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setVerifiedActionStatus({ type: null, message: '' });
+                  setShowAddVerifiedModal(true);
+                }}
+                className="inline-flex items-center gap-2 bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition-colors cursor-pointer shrink-0"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>Add Verified Person</span>
+              </button>
+            </div>
+
+            {/* Status alerts */}
+            {verifiedActionStatus.type === 'success' && (
+              <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs rounded-xl p-3.5 flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{verifiedActionStatus.message}</span>
+              </div>
+            )}
+            {verifiedActionStatus.type === 'error' && (
+              <div className="bg-red-50 border border-red-200 text-red-900 text-xs rounded-xl p-3.5 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                <span>{verifiedActionStatus.message}</span>
+              </div>
+            )}
+
+            {/* Attendance & Kiosk Privacy Policies Card */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+              <div className="flex items-center gap-2 text-slate-900 font-bold font-mono text-sm border-b border-slate-100 pb-3">
+                <Shield className="w-4 h-4 text-blue-600" />
+                <span>ATTENDANCE ACCESS & KIOSK PRIVACY POLICIES</span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                {/* Setting 1: Student Attendance History Lookup */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col justify-between space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-slate-900">
+                        Student Attendance History in User Mode
+                      </span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono uppercase ${
+                        systemSettings?.allowUserAttendanceLookup
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-slate-200 text-slate-700'
+                      }`}>
+                        {systemSettings?.allowUserAttendanceLookup ? 'Enabled' : 'Restricted (Admin Only)'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                      When enabled, students can look up their own personal entry/exit attendance sessions by entering their index number. When restricted, non-admin users cannot see attendance history.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isSavingSettings}
+                    onClick={() => handleToggleSetting('allowUserAttendanceLookup')}
+                    className={`inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      systemSettings?.allowUserAttendanceLookup
+                        ? 'bg-slate-200 hover:bg-slate-300 text-slate-800'
+                        : 'bg-blue-700 hover:bg-blue-800 text-white'
+                    }`}
+                  >
+                    {systemSettings?.allowUserAttendanceLookup ? 'Restrict to Admin Only' : 'Allow Student History Lookup'}
+                  </button>
+                </div>
+
+                {/* Setting 2: Kiosk Live Scan Privacy */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col justify-between space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-slate-900">
+                        Classroom Kiosk Live Scan Privacy
+                      </span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono uppercase ${
+                        systemSettings?.hidePublicScanStreamOnKiosk
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        {systemSettings?.hidePublicScanStreamOnKiosk ? 'Private (Stream Hidden)' : 'Public Stream'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                      Protects student privacy by hiding other students' live attendance activity feed from the public user screen in the classroom.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isSavingSettings}
+                    onClick={() => handleToggleSetting('hidePublicScanStreamOnKiosk')}
+                    className={`inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      systemSettings?.hidePublicScanStreamOnKiosk
+                        ? 'bg-slate-200 hover:bg-slate-300 text-slate-800'
+                        : 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                    }`}
+                  >
+                    {systemSettings?.hidePublicScanStreamOnKiosk ? 'Show Public Stream on Kiosk' : 'Enable Kiosk Privacy Mode'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Verified Personnel Table */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 font-mono">
+                  Authorized University Staff Roster ({verifiedPeople.length})
+                </h4>
+                <button
+                  type="button"
+                  onClick={fetchVerifiedPeople}
+                  className="text-xs text-blue-700 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Refresh</span>
+                </button>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-100/70 text-slate-600 font-semibold uppercase tracking-wider text-[11px] border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-4">Administrator / Staff Member</th>
+                      <th className="py-3 px-4">Staff ID</th>
+                      <th className="py-3 px-4">Role / Department</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4">Last Login</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {isLoadingVerified ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-slate-400">
+                          Loading verified administrators...
+                        </td>
+                      </tr>
+                    ) : verifiedPeople.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-slate-400">
+                          No verified administrators found. Click "Add Verified Person" to authorize university staff.
+                        </td>
+                      </tr>
+                    ) : (
+                      verifiedPeople.map((admin) => (
+                        <tr key={admin.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-800 flex items-center justify-center font-bold text-xs shrink-0">
+                                {admin.name.charAt(0)}
+                              </div>
+                              <div>
+                                <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                                  <span>{admin.name}</span>
+                                  {admin.isVerified && (
+                                    <span title="Verified Staff Member" className="text-blue-600">
+                                      <ShieldCheck className="w-3.5 h-3.5" />
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[11px] text-slate-500 font-mono">
+                                  {admin.email}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 font-mono font-bold text-blue-900">
+                            {admin.staffId}
+                          </td>
+                          <td className="py-3 px-4 text-slate-700 font-medium">
+                            {admin.role}
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold uppercase font-mono ${
+                              admin.status === 'ACTIVE'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-red-100 text-red-800'
+                            }`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${admin.status === 'ACTIVE' ? 'bg-emerald-600' : 'bg-red-600'}`}></span>
+                              <span>{admin.status}</span>
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-slate-500 text-[11px] font-mono">
+                            {admin.lastLoginAt ? new Date(admin.lastLoginAt).toLocaleString('en-US', { timeZone: 'Asia/Colombo' }) : 'Never logged in'}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleAdminStatus(admin)}
+                                className={`px-2.5 py-1 rounded text-[11px] font-semibold border transition-colors cursor-pointer ${
+                                  admin.status === 'ACTIVE'
+                                    ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
+                                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
+                                }`}
+                                title={admin.status === 'ACTIVE' ? 'Suspend access' : 'Activate access'}
+                              >
+                                {admin.status === 'ACTIVE' ? 'Suspend' : 'Activate'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteAdmin(admin.id, admin.name)}
+                                className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                                title="Remove verified administrator"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ==================================================== */}
         {/* TAB F: ADMIN SETTINGS                                */}
         {/* ==================================================== */}
         {activeTab === 'settings' && (
@@ -1475,6 +1881,111 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold text-xs px-5 py-2 rounded-lg transition-colors cursor-pointer"
                 >
                   Apply Correction
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add Verified Person Modal */}
+      {showAddVerifiedModal && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-blue-400" />
+                <h3 className="font-bold text-base">Add Verified Administrator</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddVerifiedModal(false)}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleAddVerifiedPerson} className="p-6 space-y-4">
+              <div className="text-xs text-slate-600">
+                Register authorized university staff members who can access the Classroom 1 Admin Panel.
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Full Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newAdminName}
+                  onChange={(e) => setNewAdminName(e.target.value)}
+                  placeholder="e.g. Dr. A. Perera"
+                  className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  University / Staff Email <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={newAdminEmail}
+                  onChange={(e) => setNewAdminEmail(e.target.value)}
+                  placeholder="e.g. perera.tm@mora.ac.lk or uthzaaawim@gmail.com"
+                  className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Staff ID <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newAdminStaffId}
+                    onChange={(e) => setNewAdminStaffId(e.target.value)}
+                    placeholder="e.g. FAC-105"
+                    className="w-full text-xs font-mono uppercase p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Role
+                  </label>
+                  <select
+                    value={newAdminRole}
+                    onChange={(e) => setNewAdminRole(e.target.value)}
+                    className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  >
+                    <option value="Super Administrator">Super Administrator</option>
+                    <option value="Department Coordinator">Department Coordinator</option>
+                    <option value="Academic Proctor">Academic Proctor</option>
+                    <option value="Faculty In-Charge">Faculty In-Charge</option>
+                    <option value="System Administrator">System Administrator</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddVerifiedModal(false)}
+                  className="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!newAdminName.trim() || !newAdminEmail.trim() || !newAdminStaffId.trim()}
+                  className="bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white font-bold text-xs px-5 py-2 rounded-lg transition-colors cursor-pointer"
+                >
+                  Save Verified Person
                 </button>
               </div>
             </form>

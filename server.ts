@@ -13,14 +13,50 @@ import {
   OccupancyStudent,
   TodayAttendanceSummary,
   TransactionCorrection,
+  VerifiedAdmin,
+  SystemSettings,
+  StudentAttendanceHistory,
 } from './src/types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+
+// Production Domain & Authentication Constants for Mora TM Entry System
+const PRODUCTION_APP_URL = 'https://mora-tm-entrysys.vercel.app';
+const PRODUCTION_DOMAIN = 'mora-tm-entrysys.vercel.app';
+
+// CORS Middleware with support for https://mora-tm-entrysys.vercel.app
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const origin = req.headers.origin as string | undefined;
+  const allowedOrigins = [
+    'https://mora-tm-entrysys.vercel.app',
+    'https://mora-tm-entrysys.vercel.app/',
+    'http://localhost:3000',
+    'http://localhost:5173',
+  ];
+
+  if (origin && (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app') || origin.endsWith('.run.app'))) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Origin, Accept');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
 
 // Ensure persistent data directory exists
 const isVercel = Boolean(process.env.VERCEL);
@@ -44,6 +80,8 @@ interface DatabaseSchema {
   currentStatuses: Record<string, StudentStatus>;
   corrections?: TransactionCorrection[];
   admin?: AdminAuthData;
+  verifiedAdmins?: VerifiedAdmin[];
+  settings?: SystemSettings;
   meta: {
     initializedAt: string;
     isPreloadedSample: boolean;
@@ -58,6 +96,41 @@ const INITIAL_SAMPLE_STUDENTS: Student[] = [
   { indexNumber: '22004', studentName: 'Dinithi Jayasinghe', importedAt: 'Sample Data', isActive: true },
   { indexNumber: '22005', studentName: 'Sandun Wickramasinghe', importedAt: 'Sample Data', isActive: true },
 ];
+
+function createDefaultVerifiedAdmins(): VerifiedAdmin[] {
+  return [
+    {
+      id: 'adm_uthzaaawim',
+      name: 'Uthsara Manul',
+      email: 'uthzaaawim@gmail.com',
+      staffId: 'ADM-001',
+      role: 'Super Administrator',
+      isVerified: true,
+      status: 'ACTIVE',
+      addedAt: new Date().toISOString(),
+    },
+    {
+      id: 'adm_perera',
+      name: 'Dr. A. Perera',
+      email: 'perera.tm@mora.ac.lk',
+      staffId: 'FAC-101',
+      role: 'Department Coordinator',
+      isVerified: true,
+      status: 'ACTIVE',
+      addedAt: new Date().toISOString(),
+    },
+    {
+      id: 'adm_proctor',
+      name: 'Classroom 1 Proctor',
+      email: 'proctor.cr1@mora.ac.lk',
+      staffId: 'PRC-201',
+      role: 'Academic Proctor',
+      isVerified: true,
+      status: 'ACTIVE',
+      addedAt: new Date().toISOString(),
+    },
+  ];
+}
 
 // Helper to hash password
 function hashPassword(password: string, salt: string): string {
@@ -97,6 +170,15 @@ function loadDatabase(): DatabaseSchema {
       if (!data.admin) {
         data.admin = createDefaultAdminAuth();
       }
+      if (!Array.isArray(data.verifiedAdmins) || data.verifiedAdmins.length === 0) {
+        data.verifiedAdmins = createDefaultVerifiedAdmins();
+      }
+      if (!data.settings) {
+        data.settings = {
+          allowUserAttendanceLookup: true,
+          hidePublicScanStreamOnKiosk: true,
+        };
+      }
       if (!data.meta) {
         data.meta = {
           initializedAt: new Date().toISOString(),
@@ -115,6 +197,15 @@ function loadDatabase(): DatabaseSchema {
     try {
       const raw = fs.readFileSync(BUNDLED_DB_FILE, 'utf-8');
       const data = JSON.parse(raw);
+      if (!Array.isArray(data.verifiedAdmins) || data.verifiedAdmins.length === 0) {
+        data.verifiedAdmins = createDefaultVerifiedAdmins();
+      }
+      if (!data.settings) {
+        data.settings = {
+          allowUserAttendanceLookup: true,
+          hidePublicScanStreamOnKiosk: true,
+        };
+      }
       return data;
     } catch (err) {
       console.error('Failed to read bundled database:', err);
@@ -133,6 +224,11 @@ function loadDatabase(): DatabaseSchema {
     currentStatuses: {},
     corrections: [],
     admin: createDefaultAdminAuth(),
+    verifiedAdmins: createDefaultVerifiedAdmins(),
+    settings: {
+      allowUserAttendanceLookup: true,
+      hidePublicScanStreamOnKiosk: true,
+    },
     meta: {
       initializedAt: new Date().toISOString(),
       isPreloadedSample: true,
@@ -165,7 +261,17 @@ function saveDatabase(data: DatabaseSchema): void {
 let db: DatabaseSchema = loadDatabase();
 
 // In-memory active admin sessions
-const activeAdminSessions = new Map<string, { adminName: string; expiresAt: number }>();
+const activeAdminSessions = new Map<string, {
+  adminName: string;
+  adminEmail?: string;
+  adminStaffId?: string;
+  adminRole?: string;
+  expiresAt: number;
+}>();
+
+// In-memory active user / operator sessions for https://mora-tm-entrysys.vercel.app
+const activeUserSessions = new Map<string, { userName: string; role: 'OPERATOR' | 'STUDENT_USER'; domain: string; expiresAt: number }>();
+
 
 // Time helpers for Asia/Colombo
 const COLOMBO_TIMEZONE = 'Asia/Colombo';
@@ -235,6 +341,9 @@ function requireAdmin(req: Request, res: Response, next: NextFunction): void {
   // Extend session on activity (sliding window: 4 hours)
   session.expiresAt = Date.now() + 4 * 60 * 60 * 1000;
   (req as any).adminUser = session.adminName;
+  (req as any).adminEmail = session.adminEmail;
+  (req as any).adminStaffId = session.adminStaffId;
+  (req as any).adminRole = session.adminRole;
   next();
 }
 
@@ -242,7 +351,7 @@ function requireAdmin(req: Request, res: Response, next: NextFunction): void {
 // API ROUTES
 // ==========================================
 
-// 1. Health & Server Status
+// 1. Health & Server Status (includes Mora TM Vercel auth domain metadata)
 app.get('/api/status', (_req: Request, res: Response) => {
   const insideCount = Object.values(db.currentStatuses).filter(s => s === 'INSIDE').length;
   res.json({
@@ -255,12 +364,95 @@ app.get('/api/status', (_req: Request, res: Response) => {
     currentTimeColombo: getColomboTimeString(),
     currentDateColombo: getColomboDateString(),
     storageType: 'Server Persistent Storage (data/classroom_db.json)',
+    authorizedDomain: PRODUCTION_DOMAIN,
+    appUrl: PRODUCTION_APP_URL,
+    authEnabled: true,
   });
 });
 
+// 1.1 Auth Configuration & Origin Verification Endpoint
+app.get('/api/auth/config', (_req: Request, res: Response) => {
+  res.json({
+    appUrl: PRODUCTION_APP_URL,
+    authorizedDomain: PRODUCTION_DOMAIN,
+    allowedOrigins: [
+      PRODUCTION_APP_URL,
+      `${PRODUCTION_APP_URL}/`,
+      'http://localhost:3000',
+      'http://localhost:5173',
+    ],
+    systemName: 'Classroom 1 – Student Entry & Exit System (Mora TM)',
+    corsEnabled: true,
+    authMethods: {
+      userMode: 'convenience_and_verified',
+      adminMode: 'password_protected',
+    },
+  });
+});
+
+// 1.2 User / Operator Authentication Endpoints (Mora TM Portal)
+app.post('/api/user/login', (req: Request, res: Response) => {
+  const { userName, role } = req.body || {};
+  const name = (typeof userName === 'string' && userName.trim()) || 'Classroom Operator';
+  const userRole = role === 'STUDENT_USER' ? 'STUDENT_USER' : 'OPERATOR';
+  const token = `usr_${crypto.randomBytes(24).toString('hex')}`;
+  const expiresAt = Date.now() + 12 * 60 * 60 * 1000; // 12 hours valid
+
+  activeUserSessions.set(token, {
+    userName: name,
+    role: userRole,
+    domain: PRODUCTION_DOMAIN,
+    expiresAt,
+  });
+
+  res.json({
+    success: true,
+    token,
+    userName: name,
+    role: userRole,
+    domain: PRODUCTION_DOMAIN,
+    appUrl: PRODUCTION_APP_URL,
+    expiresAt,
+    message: `User session authenticated for ${PRODUCTION_DOMAIN}`,
+  });
+});
+
+app.get('/api/user/verify', (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.json({ authenticated: false });
+    return;
+  }
+  const token = authHeader.substring(7).trim();
+  const session = activeUserSessions.get(token);
+  if (!session || Date.now() > session.expiresAt) {
+    if (session) activeUserSessions.delete(token);
+    res.json({ authenticated: false });
+    return;
+  }
+  res.json({
+    authenticated: true,
+    userName: session.userName,
+    role: session.role,
+    domain: session.domain,
+    appUrl: PRODUCTION_APP_URL,
+  });
+});
+
+app.post('/api/user/logout', (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7).trim();
+    activeUserSessions.delete(token);
+  }
+  res.json({ success: true, message: 'User session logged out successfully.' });
+});
+
+
+// 2. Admin Authentication Endpoints
 // 2. Admin Authentication Endpoints
 app.post('/api/admin/login', (req: Request, res: Response) => {
-  const { password, adminName } = req.body;
+  const { password, adminId, email, adminName } = req.body;
   if (!password || typeof password !== 'string') {
     res.status(400).json({ error: 'Administrator password is required.' });
     return;
@@ -277,18 +469,246 @@ app.post('/api/admin/login', (req: Request, res: Response) => {
     return;
   }
 
+  if (!Array.isArray(db.verifiedAdmins) || db.verifiedAdmins.length === 0) {
+    db.verifiedAdmins = createDefaultVerifiedAdmins();
+    saveDatabase(db);
+  }
+
+  // Find matching verified administrator
+  let matchedAdmin: VerifiedAdmin | undefined;
+
+  if (adminId && typeof adminId === 'string' && adminId.trim()) {
+    matchedAdmin = db.verifiedAdmins.find(a => a.id === adminId.trim());
+  } else if (email && typeof email === 'string' && email.trim()) {
+    const q = email.trim().toLowerCase();
+    matchedAdmin = db.verifiedAdmins.find(
+      a => a.email.toLowerCase() === q || a.staffId.toLowerCase() === q
+    );
+  } else if (adminName && typeof adminName === 'string' && adminName.trim()) {
+    const q = adminName.trim().toLowerCase();
+    matchedAdmin = db.verifiedAdmins.find(
+      a =>
+        a.name.toLowerCase() === q ||
+        a.email.toLowerCase() === q ||
+        a.staffId.toLowerCase() === q
+    );
+  }
+
+  // If no match found or not provided, reject access
+  if (!matchedAdmin) {
+    res.status(403).json({
+      error: 'Access denied: You must be a registered, verified administrator for Classroom 1.',
+    });
+    return;
+  }
+
+  if (!matchedAdmin.isVerified || matchedAdmin.status !== 'ACTIVE') {
+    res.status(403).json({
+      error: `Access denied: Account for ${matchedAdmin.name} (${matchedAdmin.staffId}) is not verified or currently suspended.`,
+    });
+    return;
+  }
+
+  // Update last login
+  matchedAdmin.lastLoginAt = new Date().toISOString();
+  saveDatabase(db);
+
   // Generate session token valid for 4 hours
   const token = crypto.randomBytes(32).toString('hex');
-  const name = (adminName && typeof adminName === 'string' && adminName.trim()) || 'Classroom 1 Admin';
   const expiresAt = Date.now() + 4 * 60 * 60 * 1000;
-  activeAdminSessions.set(token, { adminName: name, expiresAt });
+  activeAdminSessions.set(token, {
+    adminName: matchedAdmin.name,
+    adminEmail: matchedAdmin.email,
+    adminStaffId: matchedAdmin.staffId,
+    adminRole: matchedAdmin.role,
+    expiresAt,
+  });
 
   res.json({
     success: true,
     token,
-    adminName: name,
+    adminName: matchedAdmin.name,
+    adminEmail: matchedAdmin.email,
+    adminRole: matchedAdmin.role,
+    adminStaffId: matchedAdmin.staffId,
     expiresAt,
-    message: 'Administrator authentication successful.',
+    message: `Administrator authentication successful for verified personnel: ${matchedAdmin.name}.`,
+  });
+});
+
+// 2.1 Get Verified Administrators list
+app.get('/api/admin/verified-people', (req: Request, res: Response) => {
+  if (!Array.isArray(db.verifiedAdmins) || db.verifiedAdmins.length === 0) {
+    db.verifiedAdmins = createDefaultVerifiedAdmins();
+    saveDatabase(db);
+  }
+
+  const authHeader = req.headers.authorization;
+  const isAuthorized = authHeader && authHeader.startsWith('Bearer ') && activeAdminSessions.has(authHeader.substring(7).trim());
+
+  if (isAuthorized) {
+    res.json({
+      count: db.verifiedAdmins.length,
+      admins: db.verifiedAdmins,
+    });
+  } else {
+    // Public/safe list for administrator login modal selector
+    const safeList = db.verifiedAdmins
+      .filter(a => a.status === 'ACTIVE' && a.isVerified)
+      .map(a => ({
+        id: a.id,
+        name: a.name,
+        email: a.email,
+        staffId: a.staffId,
+        role: a.role,
+        isVerified: a.isVerified,
+      }));
+    res.json({
+      count: safeList.length,
+      admins: safeList,
+    });
+  }
+});
+
+// 2.2 Add a new Verified Administrator (Admin ONLY)
+app.post('/api/admin/verified-people', requireAdmin, (req: Request, res: Response) => {
+  const { name, email, staffId, role } = req.body;
+  if (!name || !email || !staffId) {
+    res.status(400).json({ error: 'Name, university email, and staff ID are required.' });
+    return;
+  }
+
+  const cleanEmail = String(email).trim().toLowerCase();
+  const cleanStaffId = String(staffId).trim().toUpperCase();
+  const cleanName = String(name).trim();
+  const cleanRole = (role && String(role).trim()) || 'Administrator';
+
+  if (!Array.isArray(db.verifiedAdmins)) {
+    db.verifiedAdmins = createDefaultVerifiedAdmins();
+  }
+
+  const existing = db.verifiedAdmins.find(
+    a => a.email.toLowerCase() === cleanEmail || a.staffId.toUpperCase() === cleanStaffId
+  );
+
+  if (existing) {
+    res.status(409).json({ error: `An administrator with email ${cleanEmail} or Staff ID ${cleanStaffId} already exists.` });
+    return;
+  }
+
+  const newAdmin: VerifiedAdmin = {
+    id: `adm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    name: cleanName,
+    email: cleanEmail,
+    staffId: cleanStaffId,
+    role: cleanRole,
+    isVerified: true,
+    status: 'ACTIVE',
+    addedAt: new Date().toISOString(),
+  };
+
+  db.verifiedAdmins.push(newAdmin);
+  saveDatabase(db);
+
+  res.json({
+    success: true,
+    message: `Verified administrator ${newAdmin.name} added successfully.`,
+    admin: newAdmin,
+  });
+});
+
+// 2.3 Update Verified Administrator (Admin ONLY)
+app.put('/api/admin/verified-people/:id', requireAdmin, (req: Request, res: Response) => {
+  const adminId = String(req.params.id).trim();
+  if (!Array.isArray(db.verifiedAdmins)) {
+    db.verifiedAdmins = createDefaultVerifiedAdmins();
+  }
+
+  const admin = db.verifiedAdmins.find(a => a.id === adminId);
+  if (!admin) {
+    res.status(404).json({ error: 'Verified administrator not found.' });
+    return;
+  }
+
+  const { name, email, staffId, role, status, isVerified } = req.body;
+
+  if (typeof name === 'string' && name.trim()) admin.name = name.trim();
+  if (typeof email === 'string' && email.trim()) admin.email = email.trim().toLowerCase();
+  if (typeof staffId === 'string' && staffId.trim()) admin.staffId = staffId.trim().toUpperCase();
+  if (typeof role === 'string' && role.trim()) admin.role = role.trim();
+  if (status === 'ACTIVE' || status === 'SUSPENDED') admin.status = status;
+  if (typeof isVerified === 'boolean') admin.isVerified = isVerified;
+
+  saveDatabase(db);
+
+  res.json({
+    success: true,
+    message: `Administrator ${admin.name} updated successfully.`,
+    admin,
+  });
+});
+
+// 2.4 Delete Verified Administrator (Admin ONLY)
+app.delete('/api/admin/verified-people/:id', requireAdmin, (req: Request, res: Response) => {
+  const adminId = String(req.params.id).trim();
+  if (!Array.isArray(db.verifiedAdmins)) {
+    db.verifiedAdmins = createDefaultVerifiedAdmins();
+  }
+
+  const activeAdmins = db.verifiedAdmins.filter(a => a.status === 'ACTIVE' && a.isVerified);
+  if (activeAdmins.length <= 1 && activeAdmins[0].id === adminId) {
+    res.status(400).json({ error: 'Cannot remove the only remaining active administrator.' });
+    return;
+  }
+
+  const index = db.verifiedAdmins.findIndex(a => a.id === adminId);
+  if (index === -1) {
+    res.status(404).json({ error: 'Verified administrator not found.' });
+    return;
+  }
+
+  const removed = db.verifiedAdmins.splice(index, 1)[0];
+  saveDatabase(db);
+
+  res.json({
+    success: true,
+    message: `Administrator ${removed.name} removed from verified people.`,
+  });
+});
+
+// 2.5 System Settings & Access Control Configuration
+app.get('/api/settings', (_req: Request, res: Response) => {
+  if (!db.settings) {
+    db.settings = {
+      allowUserAttendanceLookup: true,
+      hidePublicScanStreamOnKiosk: true,
+    };
+    saveDatabase(db);
+  }
+  res.json(db.settings);
+});
+
+app.put('/api/admin/settings', requireAdmin, (req: Request, res: Response) => {
+  if (!db.settings) {
+    db.settings = {
+      allowUserAttendanceLookup: true,
+      hidePublicScanStreamOnKiosk: true,
+    };
+  }
+
+  const { allowUserAttendanceLookup, hidePublicScanStreamOnKiosk } = req.body;
+  if (typeof allowUserAttendanceLookup === 'boolean') {
+    db.settings.allowUserAttendanceLookup = allowUserAttendanceLookup;
+  }
+  if (typeof hidePublicScanStreamOnKiosk === 'boolean') {
+    db.settings.hidePublicScanStreamOnKiosk = hidePublicScanStreamOnKiosk;
+  }
+
+  saveDatabase(db);
+  res.json({
+    success: true,
+    message: 'System settings updated successfully.',
+    settings: db.settings,
   });
 });
 
@@ -900,6 +1320,131 @@ function computeDailyReport(dateStr: string): DailyReportData {
     sessions,
   };
 }
+
+// Helper to compute personal attendance history for a single student
+function computeStudentAttendance(indexNumber: string): StudentAttendanceHistory | null {
+  const query = String(indexNumber).trim().toLowerCase();
+  const student = Object.values(db.students).find(
+    s => s.indexNumber.trim().toLowerCase() === query
+  );
+  if (!student) return null;
+
+  const studentTxs = db.transactions
+    .filter(t => t.studentIndexNumber.trim().toLowerCase() === query)
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+  const sessions: AttendanceSession[] = [];
+  let currentOpenEntry: TransactionRecord | null = null;
+  let sessionCounter = 1;
+  let totalMinutes = 0;
+
+  for (const tx of studentTxs) {
+    if (tx.type === 'ENTRY') {
+      if (currentOpenEntry) {
+        sessions.push({
+          id: `SES-${student.indexNumber}-${sessionCounter++}`,
+          sessionNumber: sessionCounter - 1,
+          indexNumber: student.indexNumber,
+          studentName: student.studentName,
+          entryTime: currentOpenEntry.formattedTime,
+          exitTime: 'Not recorded',
+          status: 'INSIDE',
+          date: currentOpenEntry.date,
+        });
+      }
+      currentOpenEntry = tx;
+    } else if (tx.type === 'EXIT') {
+      if (currentOpenEntry) {
+        const entryMs = new Date(currentOpenEntry.timestamp).getTime();
+        const exitMs = new Date(tx.timestamp).getTime();
+        const diffMins = Math.max(0, Math.round((exitMs - entryMs) / 60000));
+        totalMinutes += diffMins;
+
+        sessions.push({
+          id: `SES-${student.indexNumber}-${sessionCounter++}`,
+          sessionNumber: sessionCounter - 1,
+          indexNumber: student.indexNumber,
+          studentName: student.studentName,
+          entryTime: currentOpenEntry.formattedTime,
+          exitTime: tx.formattedTime,
+          status: 'OUTSIDE',
+          date: currentOpenEntry.date,
+        });
+        currentOpenEntry = null;
+      } else {
+        sessions.push({
+          id: `SES-${student.indexNumber}-${sessionCounter++}`,
+          sessionNumber: sessionCounter - 1,
+          indexNumber: student.indexNumber,
+          studentName: student.studentName,
+          entryTime: 'Prior Session',
+          exitTime: tx.formattedTime,
+          status: 'OUTSIDE',
+          date: tx.date,
+        });
+      }
+    }
+  }
+
+  if (currentOpenEntry) {
+    sessions.push({
+      id: `SES-${student.indexNumber}-${sessionCounter++}`,
+      sessionNumber: sessionCounter - 1,
+      indexNumber: student.indexNumber,
+      studentName: student.studentName,
+      entryTime: currentOpenEntry.formattedTime,
+      exitTime: 'Not recorded (Currently Inside)',
+      status: 'INSIDE',
+      date: currentOpenEntry.date,
+    });
+  }
+
+  sessions.reverse();
+
+  return {
+    student,
+    currentStatus: db.currentStatuses[student.indexNumber] || 'OUTSIDE',
+    totalSessions: sessions.length,
+    totalMinutesInClass: totalMinutes,
+    sessions,
+  };
+}
+
+// 14b. Student Attendance History Lookup
+app.get('/api/attendance/student/:indexNumber', (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization;
+  const isAdmin = Boolean(
+    authHeader &&
+    authHeader.startsWith('Bearer ') &&
+    activeAdminSessions.has(authHeader.substring(7).trim())
+  );
+
+  // Check access policy if not admin
+  if (!isAdmin && db.settings && db.settings.allowUserAttendanceLookup === false) {
+    res.status(403).json({
+      error: 'Student attendance history lookup is restricted by the administrator.',
+      isRestricted: true,
+    });
+    return;
+  }
+
+  const rawIndex = req.params.indexNumber;
+  if (!rawIndex) {
+    res.status(400).json({ error: 'Student index number is required.' });
+    return;
+  }
+
+  const history = computeStudentAttendance(rawIndex);
+  if (!history) {
+    res.status(404).json({ error: 'Student not found. Please verify the index number.' });
+    return;
+  }
+
+  res.json({
+    success: true,
+    history,
+  });
+});
 
 // 15. Daily Report JSON (Public)
 app.get('/api/reports/daily', (req: Request, res: Response) => {

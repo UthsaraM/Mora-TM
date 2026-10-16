@@ -2850,6 +2850,90 @@
       "formattedTime": "05:41 PM",
       "greeting": "Good Evening",
       "statusAfter": "OUTSIDE"
+    },
+    {
+      "id": "TXN-1792172502699-FTKGX",
+      "studentIndexNumber": "231071F",
+      "studentName": "Nipun banuka",
+      "venue": "Classroom 1",
+      "type": "ENTRY",
+      "date": "2026-10-16",
+      "timestamp": "2026-10-16T17:41:42.698Z",
+      "formattedTime": "11:11 PM",
+      "greeting": "Good Evening",
+      "statusAfter": "INSIDE"
+    },
+    {
+      "id": "TXN-1792172527904-THPAQ",
+      "studentIndexNumber": "231040K",
+      "studentName": "Yasaswin Semitha",
+      "venue": "Classroom 1",
+      "type": "ENTRY",
+      "date": "2026-10-16",
+      "timestamp": "2026-10-16T17:42:07.903Z",
+      "formattedTime": "11:12 PM",
+      "greeting": "Good Evening",
+      "statusAfter": "INSIDE"
+    },
+    {
+      "id": "TXN-1792172561132-MQZ4X",
+      "studentIndexNumber": "231040K",
+      "studentName": "Yasaswin Semitha",
+      "venue": "Classroom 1",
+      "type": "EXIT",
+      "date": "2026-10-16",
+      "timestamp": "2026-10-16T17:42:41.131Z",
+      "formattedTime": "11:12 PM",
+      "greeting": "Good Evening",
+      "statusAfter": "OUTSIDE"
+    },
+    {
+      "id": "TXN-1792172978992-974V9",
+      "studentIndexNumber": "231071F",
+      "studentName": "Nipun banuka",
+      "venue": "Classroom 1",
+      "type": "EXIT",
+      "date": "2026-10-16",
+      "timestamp": "2026-10-16T17:49:38.991Z",
+      "formattedTime": "11:19 PM",
+      "greeting": "Good Evening",
+      "statusAfter": "OUTSIDE"
+    },
+    {
+      "id": "TXN-1792176294024-7G238",
+      "studentIndexNumber": "231085C",
+      "studentName": "Kavindu",
+      "venue": "Classroom 1",
+      "type": "ENTRY",
+      "date": "2026-10-17",
+      "timestamp": "2026-10-16T18:44:54.024Z",
+      "formattedTime": "12:14 AM",
+      "greeting": "Good Evening",
+      "statusAfter": "INSIDE"
+    },
+    {
+      "id": "TXN-1792177491679-88XX5",
+      "studentIndexNumber": "251028B",
+      "studentName": "Meyura Madhuranga",
+      "venue": "Classroom 1",
+      "type": "ENTRY",
+      "date": "2026-10-17",
+      "timestamp": "2026-10-16T19:04:51.678Z",
+      "formattedTime": "12:34 AM",
+      "greeting": "Good Evening",
+      "statusAfter": "INSIDE"
+    },
+    {
+      "id": "TXN-1792177501555-E51F7",
+      "studentIndexNumber": "251028B",
+      "studentName": "Meyura Madhuranga",
+      "venue": "Classroom 1",
+      "type": "EXIT",
+      "date": "2026-10-17",
+      "timestamp": "2026-10-16T19:05:01.554Z",
+      "formattedTime": "12:35 AM",
+      "greeting": "Good Evening",
+      "statusAfter": "OUTSIDE"
     }
   ],
   "currentStatuses": {
@@ -2859,12 +2943,16 @@
     "22004": "INSIDE",
     "221085R": "OUTSIDE",
     "231008V": "OUTSIDE",
-    "211002E": "OUTSIDE"
+    "211002E": "OUTSIDE",
+    "231071F": "OUTSIDE",
+    "231040K": "OUTSIDE",
+    "231085C": "INSIDE",
+    "251028B": "OUTSIDE"
   },
   "meta": {
     "initializedAt": "2026-10-15T08:46:40.597Z",
     "isPreloadedSample": false,
-    "lastUpdated": "2026-10-15T12:11:12.453Z"
+    "lastUpdated": "2026-10-16T19:05:36.933Z"
   },
   "corrections": [
     {
@@ -2885,5 +2973,42 @@
     "passwordHash": "2d150032a8bd4dfedc51b4e4d28eb67d3b974c0ec19b6564285e7fdb6f21a907131c9cd723e1552c78d425a058b21b064c760d3adb645552ac5f8ec3bf744494",
     "salt": "a55df674ca3bb6307a3da9c2f4779347",
     "updatedAt": "2026-10-15T12:10:00.000Z"
+  },
+  "verifiedAdmins": [
+    {
+      "id": "adm_uthzaaawim",
+      "name": "Uthsara Manul",
+      "email": "uthzaaawim@gmail.com",
+      "staffId": "ADM-001",
+      "role": "Super Administrator",
+      "isVerified": true,
+      "status": "ACTIVE",
+      "addedAt": "2026-10-16T19:03:51.764Z",
+      "lastLoginAt": "2026-10-16T19:04:24.104Z"
+    },
+    {
+      "id": "adm_perera",
+      "name": "Dr. A. Perera",
+      "email": "perera.tm@mora.ac.lk",
+      "staffId": "FAC-101",
+      "role": "Department Coordinator",
+      "isVerified": true,
+      "status": "ACTIVE",
+      "addedAt": "2026-10-16T19:03:51.765Z"
+    },
+    {
+      "id": "adm_proctor",
+      "name": "Classroom 1 Proctor",
+      "email": "proctor.cr1@mora.ac.lk",
+      "staffId": "PRC-201",
+      "role": "Academic Proctor",
+      "isVerified": true,
+      "status": "ACTIVE",
+      "addedAt": "2026-10-16T19:03:51.765Z"
+    }
+  ],
+  "settings": {
+    "allowUserAttendanceLookup": true,
+    "hidePublicScanStreamOnKiosk": true
   }
 }
