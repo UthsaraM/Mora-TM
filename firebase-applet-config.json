@@ -1,12 +1,11 @@
 {
-  "projectId": "clean-glyph-h6pck",
-  "appId": "1:124316820349:web:afa9f6c6d09ded9f6da214",
-  "apiKey": "AIzaSyCnB8CWQyzLdfe_6EULs-5sDZihHy4jVxo",
-  "authDomain": "clean-glyph-h6pck.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-classroom1studen-49d50433-b0e6-4522-8f9b-c56483bbdf43",
-  "storageBucket": "clean-glyph-h6pck.firebasestorage.app",
-  "messagingSenderId": "124316820349",
-  "measurementId": "",
-  "oAuthClientId": "124316820349-74gtl235gkiavsqr439ubcjnfb4v067k.apps.googleusercontent.com",
+  "projectId": "entry-sys-mora",
+  "appId": "1:245602959606:web:4530291036c43cdc012cd7",
+  "apiKey": "AIzaSyDj0KIgx-bTtAr2inv2hXi83z-Wrwa2XoM",
+  "authDomain": "entry-sys-mora.firebaseapp.com",
+  "storageBucket": "entry-sys-mora.firebasestorage.app",
+  "messagingSenderId": "245602959606",
+  "measurementId": "G-454GLKJGHV",
+  "oAuthClientId": "",
   "recaptchaSiteKey": ""
 }

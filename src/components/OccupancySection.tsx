@@ -67,8 +67,55 @@ export const OccupancySection: React.FC<OccupancySectionProps> = ({
         </div>
       </div>
 
-      {/* Table Area */}
-      <div className="p-0 overflow-x-auto">
+      {/* Mobile Compact Cards (sm:hidden) */}
+      <div className="sm:hidden p-3 space-y-2 bg-slate-50/50">
+        {occupancyList.length === 0 ? (
+          <div className="py-8 text-center text-slate-400">
+            <Users className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+            <p className="text-xs font-semibold text-slate-600">No students currently inside</p>
+            <p className="text-[11px] text-slate-400">Swiped students appear here in real-time</p>
+          </div>
+        ) : filteredStudents.length === 0 ? (
+          <div className="py-6 text-center text-xs text-slate-400">
+            No inside students match "{searchTerm}".
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-2">
+            {filteredStudents.map((student, idx) => (
+              <div
+                key={student.indexNumber}
+                className="bg-white rounded-xl border border-slate-200 p-3 shadow-2xs flex items-center justify-between gap-3"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-bold text-xs bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded">
+                      {student.indexNumber}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">#{idx + 1}</span>
+                  </div>
+                  <h4 className="font-bold text-sm text-slate-900 truncate mt-1">
+                    {student.studentName}
+                  </h4>
+                  <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono mt-0.5">
+                    <Clock className="w-3 h-3 text-emerald-600" />
+                    <span>In: {student.entryTime}</span>
+                    <span>·</span>
+                    <span>{student.entryDate}</span>
+                  </div>
+                </div>
+
+                <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-100 text-emerald-900 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse"></span>
+                  INSIDE
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Desktop Table Area (hidden sm:block) */}
+      <div className="hidden sm:block p-0 overflow-x-auto">
         <table className="w-full text-left text-xs">
           <thead className="bg-slate-50 text-slate-600 font-semibold uppercase tracking-wider border-b border-slate-200">
             <tr>

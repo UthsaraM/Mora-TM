@@ -6,6 +6,9 @@ export interface Student {
   studentName: string;
   importedAt?: string;
   isActive?: boolean; // false if deactivated by admin
+  googleEmail?: string;
+  googleUid?: string;
+  linkedAt?: string;
 }
 
 export interface TransactionRecord {
@@ -19,6 +22,8 @@ export interface TransactionRecord {
   formattedTime: string; // e.g., "08:15 AM"
   greeting: string; // "Good Morning" | "Good Afternoon" | "Good Evening"
   statusAfter: StudentStatus;
+  googleEmail?: string;
+  googleUid?: string;
   isCorrected?: boolean;
   correctionId?: string;
   correctionReason?: string;
@@ -49,6 +54,7 @@ export interface AttendanceSession {
   exitTime: string; // "Not recorded" if not yet exited
   status: StudentStatus;
   date: string;
+  googleEmail?: string;
 }
 
 export interface DailyReportData {

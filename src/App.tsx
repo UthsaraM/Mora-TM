@@ -3,7 +3,6 @@ import { Header } from './components/Header';
 import { MainScreen } from './components/MainScreen';
 import { LandingPage } from './components/LandingPage';
 import { AdminDashboard } from './components/AdminDashboard';
-import { DatabaseInfoModal } from './components/DatabaseInfoModal';
 import {
   ServerStatus,
   Student,
@@ -28,7 +27,6 @@ export default function App() {
   const [occupancyList, setOccupancyList] = useState<OccupancyStudent[]>([]);
   const [todaySummary, setTodaySummary] = useState<TodayAttendanceSummary | null>(null);
   const [recentTransactions, setRecentTransactions] = useState<TransactionRecord[]>([]);
-  const [isDatabaseModalOpen, setIsDatabaseModalOpen] = useState(false);
 
   // Validate Firestore Connection on initial application boot
   useEffect(() => {
@@ -182,7 +180,6 @@ export default function App() {
           serverStatus={serverStatus}
           onContinueAsUser={() => setAppMode('USER')}
           onAdminLoginSuccess={handleAdminLoginSuccess}
-          onOpenDatabaseInfo={() => setIsDatabaseModalOpen(true)}
         />
       )}
 
@@ -198,7 +195,6 @@ export default function App() {
           todaySummary={todaySummary}
           students={students}
           recentTransactions={recentTransactions}
-          onOpenDatabaseInfo={() => setIsDatabaseModalOpen(true)}
         />
       )}
 
@@ -217,7 +213,6 @@ export default function App() {
               }
             }}
             isAdminAuthenticated={!!adminToken}
-            onOpenDatabaseInfo={() => setIsDatabaseModalOpen(true)}
           />
 
           {/* Main Classroom Screen Content */}
@@ -241,12 +236,6 @@ export default function App() {
               </div>
               <div className="flex items-center gap-4">
                 <button
-                  onClick={() => setIsDatabaseModalOpen(true)}
-                  className="hover:text-emerald-700 font-medium underline cursor-pointer text-emerald-800"
-                >
-                  Firebase Firestore Details
-                </button>
-                <button
                   onClick={() => setAppMode('LANDING')}
                   className="hover:text-blue-700 underline cursor-pointer"
                 >
@@ -257,13 +246,6 @@ export default function App() {
           </footer>
         </div>
       )}
-
-      {/* Database & Firebase Cloud Info Guide Modal */}
-      <DatabaseInfoModal
-        isOpen={isDatabaseModalOpen}
-        onClose={() => setIsDatabaseModalOpen(false)}
-        serverStatus={serverStatus}
-      />
     </>
   );
 }

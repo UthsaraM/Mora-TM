@@ -40,6 +40,13 @@ import {
   SystemSettings,
 } from '../types';
 import { getColomboDateString, getColomboFullDateTimeString } from '../utils/time';
+import {
+  syncStudentToFirestore,
+  syncStudentRosterToFirestore,
+  syncAdminUserToFirestore,
+  deleteAdminUserFromFirestore,
+  clearTransactionsFromFirestore,
+} from '../lib/firebase';
 
 interface AdminDashboardProps {
   adminToken: string;
@@ -64,7 +71,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   todaySummary,
   students,
   recentTransactions,
-  onOpenDatabaseInfo,
 }) => {
   const [activeTab, setActiveTab] = useState<'students' | 'occupancy' | 'attendance' | 'reports' | 'corrections' | 'verified' | 'settings'>('students');
 
@@ -131,6 +137,50 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [newPw, setNewPw] = useState('');
   const [pwStatus, setPwStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' });
 
+  // Reset transactions modal state & action
+  const [showResetTransactionsModal, setShowResetTransactionsModal] = useState(false);
+  const [resetConfirmationInput, setResetConfirmationInput] = useState('');
+  const [isResettingTransactions, setIsResettingTransactions] = useState(false);
+  const [resetTransactionsStatus, setResetTransactionsStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' });
+
+  const handleResetTransactions = async () => {
+    if (resetConfirmationInput.trim().toUpperCase() !== 'CLEAR') {
+      setResetTransactionsStatus({ type: 'error', message: 'You must type CLEAR exactly to confirm.' });
+      return;
+    }
+    setIsResettingTransactions(true);
+    setResetTransactionsStatus({ type: null, message: '' });
+    try {
+      const res = await fetch('/api/database/reset-transactions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to reset transactions.');
+
+      // Also wipe transactions and occupancy records from Firestore
+      await clearTransactionsFromFirestore();
+
+      await onRefreshAllData();
+      setResetTransactionsStatus({
+        type: 'success',
+        message: 'All attendance transaction records and occupancy states have been successfully cleared.',
+      });
+      setResetConfirmationInput('');
+      setTimeout(() => {
+        setShowResetTransactionsModal(false);
+        setResetTransactionsStatus({ type: null, message: '' });
+      }, 1600);
+    } catch (err: any) {
+      setResetTransactionsStatus({
+        type: 'error',
+        message: err.message || 'Error occurred while resetting transactions.',
+      });
+    } finally {
+      setIsResettingTransactions(false);
+    }
+  };
+
   // Fetch Verified Administrators
   const fetchVerifiedPeople = async () => {
     setIsLoadingVerified(true);
@@ -182,6 +232,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to add verified administrator.');
+
+      if (data.admin) {
+        syncAdminUserToFirestore(data.admin).catch(err => console.warn('Admin Firestore sync notice:', err));
+      }
+
       setVerifiedActionStatus({ type: 'success', message: data.message });
       setNewAdminName('');
       setNewAdminEmail('');
@@ -207,15 +262,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to update administrator status.');
+      if (data.admin) {
+        syncAdminUserToFirestore(data.admin).catch(err => console.warn('Admin status Firestore sync notice:', err));
+      }
       fetchVerifiedPeople();
     } catch (err: any) {
-      alert(err.message);
+      setVerifiedActionStatus({ type: 'error', message: err.message });
     }
   };
 
   // Delete Verified Administrator
   const handleDeleteAdmin = async (id: string, name: string) => {
-    if (!confirm(`Are you sure you want to remove administrator ${name}?`)) return;
     try {
       const res = await fetch(`/api/admin/verified-people/${id}`, {
         method: 'DELETE',
@@ -223,9 +280,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to remove administrator.');
+
+      deleteAdminUserFromFirestore(id).catch(err => console.warn('Admin Firestore delete notice:', err));
       fetchVerifiedPeople();
     } catch (err: any) {
-      alert(err.message);
+      setVerifiedActionStatus({ type: 'error', message: err.message });
     }
   };
 
@@ -321,6 +380,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to add student.');
 
+      // Persist to Cloud Firestore
+      syncStudentToFirestore({
+        indexNumber: newIndexNumber.trim(),
+        studentName: newStudentName.trim(),
+        importedAt: new Date().toISOString(),
+        isActive: true,
+      }).catch(err => console.warn('Cloud sync student notice:', err));
+
       await onRefreshAllData();
       setShowAddStudentModal(false);
       setNewIndexNumber('');
@@ -354,10 +421,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         throw new Error(data.error || 'Failed to update student.');
       }
 
+      // Persist to Cloud Firestore
+      syncStudentToFirestore({
+        indexNumber: editingStudent.indexNumber,
+        studentName: editName.trim(),
+        isActive: editingStudent.isActive,
+      }).catch(err => console.warn('Cloud update student notice:', err));
+
       await onRefreshAllData();
       setEditingStudent(null);
     } catch (err: any) {
-      alert(err.message);
+      console.error(err.message);
     }
   };
 
@@ -381,9 +455,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         throw new Error(data.error || 'Failed to update status.');
       }
 
+      // Persist to Cloud Firestore
+      syncStudentToFirestore({
+        indexNumber: student.indexNumber,
+        studentName: student.studentName,
+        isActive: newActiveState,
+      }).catch(err => console.warn('Cloud status student notice:', err));
+
       await onRefreshAllData();
     } catch (err: any) {
-      alert(err.message);
+      console.error(err.message);
     }
   };
 
@@ -444,6 +525,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Upload failed.');
+
+      // Sync imported CSV roster to Firestore in background
+      if (csvPreview.length > 0) {
+        syncStudentRosterToFirestore(
+          csvPreview.map(p => ({
+            indexNumber: p.indexNumber,
+            studentName: p.studentName,
+            importedAt: new Date().toISOString(),
+            isActive: true,
+          }))
+        ).catch(err => console.warn('Roster cloud sync notice:', err));
+      }
 
       setCsvUploadStatus({ type: 'success', message: data.message });
       await onRefreshAllData();
@@ -555,17 +648,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <span className="text-[10px] text-slate-400 uppercase">Asia/Colombo</span>
             </div>
 
-            {onOpenDatabaseInfo && (
-              <button
-                type="button"
-                onClick={onOpenDatabaseInfo}
-                className="inline-flex items-center gap-1.5 bg-emerald-950/70 hover:bg-emerald-900 text-emerald-200 border border-emerald-700/80 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
-                title="View Firebase Firestore & Cloud Setup Details"
-              >
-                <Cloud className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="hidden sm:inline">Firebase Cloud</span>
-              </button>
-            )}
+            {/* Action buttons */}
 
             <button
               onClick={onSwitchToUserMode}
@@ -1500,25 +1583,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </p>
               <button
                 type="button"
-                onClick={async () => {
-                  if (confirm('Are you sure you want to reset all attendance transactions? This action cannot be undone.')) {
-                    try {
-                      const res = await fetch('/api/database/reset-transactions', {
-                        method: 'POST',
-                        headers: { Authorization: `Bearer ${adminToken}` },
-                      });
-                      if (res.ok) {
-                        alert('All transactions have been reset.');
-                        await onRefreshAllData();
-                      }
-                    } catch (err) {
-                      alert('Failed to reset.');
-                    }
-                  }
+                onClick={() => {
+                  setResetConfirmationInput('');
+                  setResetTransactionsStatus({ type: null, message: '' });
+                  setShowResetTransactionsModal(true);
                 }}
-                className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs px-4 py-2 rounded-lg transition-colors cursor-pointer"
+                className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs px-4 py-2.5 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-2"
               >
-                Clear All Transaction Logs
+                <Trash2 className="w-4 h-4" />
+                <span>Reset All Transaction Logs</span>
               </button>
             </div>
           </div>
@@ -1989,6 +2062,110 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Attendance Transactions Confirmation Modal */}
+      {showResetTransactionsModal && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-red-200">
+            <div className="px-6 py-4 bg-red-600 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-red-200" />
+                <h3 className="font-bold text-base font-mono">CONFIRM DATA RESET</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isResettingTransactions) {
+                    setShowResetTransactionsModal(false);
+                    setResetConfirmationInput('');
+                    setResetTransactionsStatus({ type: null, message: '' });
+                  }
+                }}
+                className="text-red-200 hover:text-white p-1 rounded-lg text-lg cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-red-50 border border-red-200 rounded-xl p-3.5 text-xs text-red-950 space-y-2">
+                <p className="font-bold">⚠️ Warning: Permanent Action</p>
+                <p>
+                  This action will permanently wipe all student entry and exit transaction logs, daily attendance records, and reset Classroom 1 occupancy to 0.
+                </p>
+                <p className="text-slate-600 text-[11px]">
+                  Registered students in the roster and administrator accounts will NOT be deleted.
+                </p>
+              </div>
+
+              {resetTransactionsStatus.message && (
+                <div
+                  className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
+                    resetTransactionsStatus.type === 'success'
+                      ? 'bg-emerald-50 border border-emerald-200 text-emerald-900'
+                      : 'bg-red-50 border border-red-200 text-red-900'
+                  }`}
+                >
+                  {resetTransactionsStatus.type === 'success' ? (
+                    <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                  )}
+                  <span>{resetTransactionsStatus.message}</span>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-slate-800">
+                  To confirm, type <span className="font-mono font-bold text-red-700 bg-red-100 px-1.5 py-0.5 rounded">CLEAR</span> below:
+                </label>
+                <input
+                  type="text"
+                  value={resetConfirmationInput}
+                  onChange={(e) => setResetConfirmationInput(e.target.value)}
+                  placeholder="Type CLEAR to confirm"
+                  disabled={isResettingTransactions}
+                  className="w-full text-sm font-mono tracking-wider p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 uppercase"
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowResetTransactionsModal(false);
+                    setResetConfirmationInput('');
+                    setResetTransactionsStatus({ type: null, message: '' });
+                  }}
+                  disabled={isResettingTransactions}
+                  className="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetTransactions}
+                  disabled={resetConfirmationInput.trim().toUpperCase() !== 'CLEAR' || isResettingTransactions}
+                  className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold text-xs px-5 py-2.5 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-2"
+                >
+                  {isResettingTransactions ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Wiping Logs...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Wipe All Logs</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

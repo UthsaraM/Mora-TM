@@ -12,13 +12,12 @@ import {
   UserCheck,
   Sparkles,
   Command,
-  History,
   ShieldCheck,
-  Lock,
   CheckCircle2,
   ChevronRight,
   Eye,
   EyeOff,
+  Lock,
 } from 'lucide-react';
 import {
   Student,
@@ -26,7 +25,6 @@ import {
   TransactionResponse,
   ServerStatus,
   OccupancyStudent,
-  StudentAttendanceHistory,
   SystemSettings,
 } from '../types';
 import { OccupancySection } from './OccupancySection';
@@ -62,18 +60,11 @@ export const MainScreen: React.FC<MainScreenProps> = ({
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
   const [showInlineSuggestions, setShowInlineSuggestions] = useState(false);
 
-  // Student Attendance History Modal states
-  const [showHistoryModal, setShowHistoryModal] = useState(false);
-  const [lookupIndexNumber, setLookupIndexNumber] = useState('');
-  const [studentHistoryData, setStudentHistoryData] = useState<StudentAttendanceHistory | null>(null);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [historyError, setHistoryError] = useState<string | null>(null);
   const [systemSettings, setSystemSettings] = useState<SystemSettings | null>(null);
   const [isStreamRevealed, setIsStreamRevealed] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const quickSearchInputRef = useRef<HTMLInputElement>(null);
-  const historyInputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -232,30 +223,6 @@ export const MainScreen: React.FC<MainScreenProps> = ({
     }
   };
 
-  const handleLookupStudentAttendance = async (idxToQuery: string) => {
-    const trimmed = idxToQuery.trim();
-    if (!trimmed) {
-      setHistoryError('Please enter a student index number.');
-      return;
-    }
-
-    setIsLoadingHistory(true);
-    setHistoryError(null);
-    setStudentHistoryData(null);
-
-    try {
-      const res = await fetch(`/api/attendance/student/${encodeURIComponent(trimmed)}`);
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Student not found or attendance access restricted.');
-      }
-      setStudentHistoryData(data.history);
-    } catch (err: any) {
-      setHistoryError(err.message || 'Unable to retrieve attendance history.');
-    } finally {
-      setIsLoadingHistory(false);
-    }
-  };
 
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -319,7 +286,7 @@ export const MainScreen: React.FC<MainScreenProps> = ({
   }, []);
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-8">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24 md:pb-8 space-y-8">
       {/* Navigation Shortcut Bar with Quick Search Trigger */}
       <div className="bg-white border border-slate-200 rounded-xl p-1.5 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
         <div className="flex items-center gap-1">
@@ -337,19 +304,6 @@ export const MainScreen: React.FC<MainScreenProps> = ({
             <Users className="w-3.5 h-3.5 text-purple-600" />
             <span>2. Current Occupancy ({occupancyList.length})</span>
           </a>
-          <button
-            type="button"
-            onClick={() => {
-              setLookupIndexNumber('');
-              setHistoryError(null);
-              setStudentHistoryData(null);
-              setShowHistoryModal(true);
-            }}
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-100 flex items-center gap-1.5 cursor-pointer"
-          >
-            <History className="w-3.5 h-3.5 text-blue-600" />
-            <span>3. Attendance History</span>
-          </button>
         </div>
 
         {/* Quick Search Button */}
@@ -680,19 +634,6 @@ export const MainScreen: React.FC<MainScreenProps> = ({
             <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto shrink-0">
               <button
                 type="button"
-                onClick={() => {
-                  setLookupIndexNumber('');
-                  setHistoryError(null);
-                  setStudentHistoryData(null);
-                  setShowHistoryModal(true);
-                }}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition-colors cursor-pointer"
-              >
-                <History className="w-4 h-4" />
-                <span>Check My Attendance History</span>
-              </button>
-              <button
-                type="button"
                 onClick={() => setIsStreamRevealed(true)}
                 className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 text-slate-500 hover:text-slate-800 font-semibold text-xs px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer"
                 title="Show recent scans for proctor station"
@@ -712,19 +653,6 @@ export const MainScreen: React.FC<MainScreenProps> = ({
                 </h3>
               </div>
               <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLookupIndexNumber('');
-                    setHistoryError(null);
-                    setStudentHistoryData(null);
-                    setShowHistoryModal(true);
-                  }}
-                  className="text-xs text-blue-700 hover:underline font-bold flex items-center gap-1 cursor-pointer"
-                >
-                  <History className="w-3.5 h-3.5" />
-                  <span>Student Attendance Lookup</span>
-                </button>
                 {systemSettings?.hidePublicScanStreamOnKiosk && (
                   <button
                     type="button"
@@ -906,232 +834,66 @@ export const MainScreen: React.FC<MainScreenProps> = ({
       )}
 
       {/* ==================================================== */}
-      {/* STUDENT ATTENDANCE HISTORY MODAL                     */}
+      {/* MOBILE FIXED BOTTOM NAVIGATION BAR                   */}
       {/* ==================================================== */}
-      {showHistoryModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-200">
-            {/* Header */}
-            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <History className="w-5 h-5 text-blue-400" />
-                <h3 className="font-bold text-base">Student Attendance History</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowHistoryModal(false);
-                  setStudentHistoryData(null);
-                  setHistoryError(null);
-                  setLookupIndexNumber('');
-                }}
-                className="text-slate-400 hover:text-white cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Content Area */}
-            <div className="p-6 space-y-5">
-              {/* If administrator has disabled student attendance history lookup */}
-              {systemSettings && systemSettings.allowUserAttendanceLookup === false ? (
-                <div className="p-6 text-center space-y-3">
-                  <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center mx-auto">
-                    <Lock className="w-6 h-6" />
-                  </div>
-                  <h4 className="text-sm font-bold text-slate-800">Attendance History Restricted</h4>
-                  <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
-                    Student attendance logs are currently restricted to authorized administrators. Regular users cannot view historical attendance sessions. Please contact your classroom administrator if you require an official attendance report.
-                  </p>
-                  <div className="pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowHistoryModal(false)}
-                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold cursor-pointer"
-                    >
-                      Close Window
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {/* Search / Lookup Form */}
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      handleLookupStudentAttendance(lookupIndexNumber);
-                    }}
-                    className="space-y-3"
-                  >
-                    <label className="block text-xs font-semibold text-slate-700">
-                      Enter Student Index Number to View Attendance Record
-                    </label>
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                        <input
-                          ref={historyInputRef}
-                          type="text"
-                          autoFocus
-                          value={lookupIndexNumber}
-                          onChange={(e) => setLookupIndexNumber(e.target.value)}
-                          placeholder="e.g. 22001, 22002, 22003..."
-                          className="w-full text-xs sm:text-sm pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                        />
-                      </div>
-                      <button
-                        type="submit"
-                        disabled={isLoadingHistory || !lookupIndexNumber.trim()}
-                        className="bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white font-bold text-xs px-5 py-2.5 rounded-lg transition-colors cursor-pointer shrink-0"
-                      >
-                        {isLoadingHistory ? 'Searching...' : 'View History'}
-                      </button>
-                    </div>
-
-                    {/* Quick index selector chips */}
-                    <div className="flex items-center gap-1.5 flex-wrap text-xs text-slate-500">
-                      <span className="text-[11px]">Quick Samples:</span>
-                      {students.slice(0, 5).map((s) => (
-                        <button
-                          key={s.indexNumber}
-                          type="button"
-                          onClick={() => {
-                            setLookupIndexNumber(s.indexNumber);
-                            handleLookupStudentAttendance(s.indexNumber);
-                          }}
-                          className="px-2 py-0.5 rounded bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 border border-slate-200 font-mono text-[11px] cursor-pointer"
-                        >
-                          {s.indexNumber}
-                        </button>
-                      ))}
-                    </div>
-                  </form>
-
-                  {/* Error Notification */}
-                  {historyError && (
-                    <div className="bg-red-50 border border-red-200 text-red-900 text-xs rounded-xl p-3 flex items-center gap-2">
-                      <ShieldAlert className="w-4 h-4 text-red-600 shrink-0" />
-                      <span>{historyError}</span>
-                    </div>
-                  )}
-
-                  {/* Loaded History Details */}
-                  {studentHistoryData && (
-                    <div className="space-y-4 pt-2 border-t border-slate-100">
-                      {/* Student Card */}
-                      <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-blue-900 bg-blue-100 px-2 py-0.5 rounded text-xs">
-                              {studentHistoryData.student.indexNumber}
-                            </span>
-                            <h4 className="font-bold text-sm sm:text-base text-slate-900">
-                              {studentHistoryData.student.studentName}
-                            </h4>
-                          </div>
-                          <div className="text-xs text-slate-500 mt-1 flex items-center gap-2">
-                            <span>Status:</span>
-                            <span className={`font-bold uppercase text-[11px] px-2 py-0.5 rounded font-mono ${
-                              studentHistoryData.currentStatus === 'INSIDE'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-slate-200 text-slate-700'
-                            }`}>
-                              {studentHistoryData.currentStatus === 'INSIDE' ? 'Currently Inside Classroom 1' : 'Outside'}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-4 text-right">
-                          <div className="bg-white px-3 py-1.5 rounded-lg border border-slate-200 text-center">
-                            <div className="text-[10px] text-slate-400 font-semibold uppercase">Sessions</div>
-                            <div className="font-mono font-bold text-slate-900 text-sm">
-                              {studentHistoryData.totalSessions}
-                            </div>
-                          </div>
-                          <div className="bg-white px-3 py-1.5 rounded-lg border border-slate-200 text-center">
-                            <div className="text-[10px] text-slate-400 font-semibold uppercase">Time Inside</div>
-                            <div className="font-mono font-bold text-slate-900 text-sm">
-                              {Math.floor(studentHistoryData.totalMinutesInClass / 60)}h {studentHistoryData.totalMinutesInClass % 60}m
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Sessions List */}
-                      <div>
-                        <div className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-2 flex items-center justify-between">
-                          <span>Recorded Attendance Sessions</span>
-                          <span className="text-slate-400 font-normal font-mono text-[11px]">
-                            Showing {studentHistoryData.sessions.length} sessions
-                          </span>
-                        </div>
-
-                        {studentHistoryData.sessions.length === 0 ? (
-                          <div className="py-8 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-slate-200">
-                            No attendance entry/exit swipes recorded yet for this student.
-                          </div>
-                        ) : (
-                          <div className="max-h-60 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100">
-                            {studentHistoryData.sessions.map((ses, idx) => (
-                              <div
-                                key={ses.id || idx}
-                                className="p-3 flex items-center justify-between text-xs hover:bg-slate-50 transition-colors"
-                              >
-                                <div className="flex items-center gap-3">
-                                  <span className="font-mono text-slate-400 text-[11px] w-6">
-                                    #{studentHistoryData.sessions.length - idx}
-                                  </span>
-                                  <div>
-                                    <div className="font-semibold text-slate-900">
-                                      {ses.date}
-                                    </div>
-                                    <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5 font-mono">
-                                      <span className="text-emerald-700 font-medium">In: {ses.entryTime}</span>
-                                      <span>·</span>
-                                      <span className="text-blue-700 font-medium">Out: {ses.exitTime}</span>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <div>
-                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono uppercase ${
-                                    ses.status === 'INSIDE'
-                                      ? 'bg-amber-100 text-amber-900'
-                                      : 'bg-emerald-100 text-emerald-800'
-                                  }`}>
-                                    {ses.status === 'INSIDE' ? 'Active Inside' : 'Completed'}
-                                  </span>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex justify-between items-center text-xs text-slate-500">
-              <span className="font-mono text-[11px]">Classroom 1 University Access Control</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowHistoryModal(false);
-                  setStudentHistoryData(null);
-                  setHistoryError(null);
-                  setLookupIndexNumber('');
-                }}
-                className="px-3.5 py-1.5 rounded-lg border border-slate-300 font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
-              >
-                Close
-              </button>
-            </div>
+      <nav
+        aria-label="Mobile Navigation"
+        className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg px-3 py-1.5 flex items-center justify-around md:hidden safe-area-pb"
+      >
+        {/* 1. Entry & Exit Scanner */}
+        <a
+          href="#scanner-section"
+          className="flex flex-col items-center justify-center gap-1 text-slate-600 hover:text-blue-700 active:scale-95 transition-all p-1"
+        >
+          <div className="p-1.5 rounded-full bg-blue-50 text-blue-700">
+            <ScanLine className="w-5 h-5" />
           </div>
-        </div>
-      )}
+          <span className="text-[10px] font-bold tracking-tight">Entry / Scan</span>
+        </a>
+
+        {/* 2. Live Occupancy */}
+        <a
+          href="#occupancy-section"
+          className="flex flex-col items-center justify-center gap-1 text-slate-600 hover:text-purple-700 active:scale-95 transition-all p-1 relative"
+        >
+          <div className="p-1.5 rounded-full bg-purple-50 text-purple-700 relative">
+            <Users className="w-5 h-5" />
+            {occupancyList.length > 0 && (
+              <span className="absolute -top-1 -right-1 px-1.5 py-0.2 rounded-full bg-purple-600 text-white font-mono text-[9px] font-bold ring-2 ring-white">
+                {occupancyList.length}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] font-bold tracking-tight">Occupancy</span>
+        </a>
+
+        {/* 3. Quick Search */}
+        <button
+          type="button"
+          onClick={() => {
+            setQuickSearchQuery('');
+            setShowQuickSearchModal(true);
+          }}
+          className="flex flex-col items-center justify-center gap-1 text-slate-600 hover:text-blue-700 active:scale-95 transition-all p-1 cursor-pointer"
+        >
+          <div className="p-1.5 rounded-full bg-slate-100 text-slate-700">
+            <Search className="w-5 h-5" />
+          </div>
+          <span className="text-[10px] font-bold tracking-tight">Search</span>
+        </button>
+
+        {/* 4. Admin Portal */}
+        <button
+          type="button"
+          onClick={onSwitchToAdmin}
+          className="flex flex-col items-center justify-center gap-1 text-slate-600 hover:text-blue-700 active:scale-95 transition-all p-1 cursor-pointer"
+        >
+          <div className="p-1.5 rounded-full bg-slate-100 text-slate-700">
+            <ShieldCheck className="w-5 h-5" />
+          </div>
+          <span className="text-[10px] font-bold tracking-tight">Admin</span>
+        </button>
+      </nav>
     </div>
   );
 };

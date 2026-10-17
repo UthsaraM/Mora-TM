@@ -1,4 +1,5 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getAnalytics } from 'firebase/analytics';
 import {
   getAuth,
   GoogleAuthProvider,
@@ -13,7 +14,8 @@ import {
   collection,
   getDocs,
   setDoc,
-  updateDoc,
+  deleteDoc,
+  writeBatch,
   onSnapshot,
   query,
   orderBy,
@@ -21,14 +23,35 @@ import {
   getDocFromServer,
   Unsubscribe,
 } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
-import { Student, TransactionRecord, StudentStatus, OccupancyStudent } from '../types';
+import { Student, TransactionRecord, StudentStatus, VerifiedAdmin } from '../types';
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+// Web app's Firebase configuration for entry-sys-mora
+export const firebaseConfig = {
+  apiKey: "AIzaSyDj0KIgx-bTtAr2inv2hXi83z-Wrwa2XoM",
+  authDomain: "entry-sys-mora.firebaseapp.com",
+  projectId: "entry-sys-mora",
+  storageBucket: "entry-sys-mora.firebasestorage.app",
+  messagingSenderId: "245602959606",
+  appId: "1:245602959606:web:4530291036c43cdc012cd7",
+  measurementId: "G-454GLKJGHV",
+};
 
-// CRITICAL: Must pass databaseId from config
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Initialize Firebase App
+export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+
+// Initialize Analytics safely
+let analytics: ReturnType<typeof getAnalytics> | null = null;
+if (typeof window !== 'undefined') {
+  try {
+    analytics = getAnalytics(app);
+  } catch (err) {
+    // Analytics is optional and might be blocked in sandboxes
+  }
+}
+export { analytics };
+
+// Initialize Firestore & Auth
+export const db = getFirestore(app);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
@@ -88,14 +111,14 @@ export function handleFirestoreError(
 export async function testFirestoreConnection(): Promise<{ connected: boolean; message: string }> {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
-    return { connected: true, message: 'Connected to Firebase Firestore successfully.' };
+    return { connected: true, message: 'Connected to Firebase Firestore (entry-sys-mora).' };
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
+      console.warn('Firestore client is currently operating offline.');
       return { connected: false, message: 'Firestore client is currently offline.' };
     }
-    // Permissions or non-existent doc errors still confirm active network connection
-    return { connected: true, message: 'Firestore initialized and connected to cloud cluster.' };
+    // Permissions or non-existent test document still confirm live network connectivity
+    return { connected: true, message: 'Firestore initialized with entry-sys-mora.' };
   }
 }
 
@@ -207,6 +230,123 @@ export function subscribeToRecentTransactions(
   );
 }
 
+// Push a single student to Firestore
+export async function syncStudentToFirestore(student: Student): Promise<void> {
+  try {
+    const payload: Partial<Student> = {
+      indexNumber: student.indexNumber,
+      studentName: student.studentName,
+      importedAt: student.importedAt || new Date().toISOString(),
+      isActive: student.isActive !== false,
+    };
+    if (student.googleEmail) payload.googleEmail = student.googleEmail;
+    if (student.googleUid) payload.googleUid = student.googleUid;
+    if (student.linkedAt) payload.linkedAt = student.linkedAt;
+
+    await setDoc(doc(db, 'students', student.indexNumber), payload, { merge: true });
+  } catch (err) {
+    console.warn(`Firestore student sync warning for ${student.indexNumber}:`, err);
+  }
+}
+
+// Link a student's Google account in Firestore
+export async function linkStudentIndexToGoogleInFirestore(
+  indexNumber: string,
+  googleEmail: string,
+  googleUid: string,
+  studentName?: string
+): Promise<void> {
+  try {
+    await setDoc(
+      doc(db, 'students', indexNumber),
+      {
+        indexNumber,
+        ...(studentName ? { studentName } : {}),
+        googleEmail,
+        googleUid,
+        linkedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.warn(`Firestore student link warning for ${indexNumber}:`, err);
+  }
+}
+
+// Delete student from Firestore
+export async function deleteStudentFromFirestore(indexNumber: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, 'students', indexNumber));
+  } catch (err) {
+    console.warn(`Firestore student delete warning for ${indexNumber}:`, err);
+  }
+}
+
+// Sync bulk student roster to Firestore
+export async function syncStudentRosterToFirestore(students: Student[]): Promise<number> {
+  let count = 0;
+  // Process in chunks of 50 to maintain fast execution
+  const chunkSize = 50;
+  for (let i = 0; i < students.length; i += chunkSize) {
+    const chunk = students.slice(i, i + chunkSize);
+    const batch = writeBatch(db);
+    chunk.forEach(s => {
+      const ref = doc(db, 'students', s.indexNumber);
+      const payload: Partial<Student> = {
+        indexNumber: s.indexNumber,
+        studentName: s.studentName,
+        importedAt: s.importedAt || new Date().toISOString(),
+        isActive: s.isActive !== false,
+      };
+      if (s.googleEmail) payload.googleEmail = s.googleEmail;
+      if (s.googleUid) payload.googleUid = s.googleUid;
+      if (s.linkedAt) payload.linkedAt = s.linkedAt;
+
+      batch.set(ref, payload, { merge: true });
+    });
+    try {
+      await batch.commit();
+      count += chunk.length;
+    } catch (err) {
+      console.warn('Batch student commit notice:', err);
+    }
+  }
+  return count;
+}
+
+// Fetch all verified admins from Firestore
+export async function fetchAdminsFromFirestore(): Promise<VerifiedAdmin[]> {
+  try {
+    const snap = await getDocs(collection(db, 'admins'));
+    const list: VerifiedAdmin[] = [];
+    snap.forEach(d => {
+      list.push(d.data() as VerifiedAdmin);
+    });
+    return list;
+  } catch (err) {
+    console.warn('Notice reading admins from Firestore:', err);
+    return [];
+  }
+}
+
+// Sync Verified Administrator to Firestore
+export async function syncAdminUserToFirestore(admin: VerifiedAdmin): Promise<void> {
+  try {
+    await setDoc(doc(db, 'admins', admin.id), admin, { merge: true });
+  } catch (err) {
+    console.warn(`Firestore admin sync notice for ${admin.id}:`, err);
+  }
+}
+
+// Delete Verified Administrator from Firestore
+export async function deleteAdminUserFromFirestore(adminId: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, 'admins', adminId));
+  } catch (err) {
+    console.warn(`Firestore admin delete notice for ${adminId}:`, err);
+  }
+}
+
 // Push a new transaction to Firestore
 export async function syncTransactionToFirestore(tx: TransactionRecord): Promise<void> {
   const txPath = `transactions/${tx.id}`;
@@ -223,21 +363,29 @@ export async function syncTransactionToFirestore(tx: TransactionRecord): Promise
       { merge: true }
     );
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, txPath);
+    console.warn('Firestore transaction sync notice:', error);
   }
 }
 
-// Sync bulk student roster to Firestore
-export async function syncStudentRosterToFirestore(students: Student[]): Promise<number> {
-  let count = 0;
-  for (const s of students) {
-    const sPath = `students/${s.indexNumber}`;
-    try {
-      await setDoc(doc(db, 'students', s.indexNumber), s, { merge: true });
-      count++;
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, sPath);
-    }
+// Clear all transactions and reset occupancy in Firestore
+export async function clearTransactionsFromFirestore(): Promise<void> {
+  try {
+    // 1. Fetch all transactions
+    const txSnap = await getDocs(collection(db, 'transactions'));
+    const batch1 = writeBatch(db);
+    txSnap.forEach(d => {
+      batch1.delete(d.ref);
+    });
+    await batch1.commit();
+
+    // 2. Fetch and clear occupancy records
+    const occSnap = await getDocs(collection(db, 'occupancy'));
+    const batch2 = writeBatch(db);
+    occSnap.forEach(d => {
+      batch2.delete(d.ref);
+    });
+    await batch2.commit();
+  } catch (err) {
+    console.warn('Firestore transaction wipe notice:', err);
   }
-  return count;
 }

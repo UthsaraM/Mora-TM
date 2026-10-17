@@ -43,7 +43,10 @@ service cloud.firestore {
         data.indexNumber is string && data.indexNumber.size() > 0 && data.indexNumber.size() <= 64 &&
         data.studentName is string && data.studentName.size() > 0 && data.studentName.size() <= 128 &&
         (!('isActive' in data) || data.isActive is bool) &&
-        (!('importedAt' in data) || (data.importedAt is string && data.importedAt.size() <= 64));
+        (!('importedAt' in data) || (data.importedAt is string && data.importedAt.size() <= 64)) &&
+        (!('googleEmail' in data) || (data.googleEmail is string && data.googleEmail.size() <= 128)) &&
+        (!('googleUid' in data) || (data.googleUid is string && data.googleUid.size() <= 128)) &&
+        (!('linkedAt' in data) || (data.linkedAt is string && data.linkedAt.size() <= 64));
     }
 
     // Validation for TransactionRecord entity
@@ -58,6 +61,8 @@ service cloud.firestore {
         data.timestamp is string && data.timestamp.size() <= 64 &&
         data.formattedTime is string && data.formattedTime.size() <= 32 &&
         (data.statusAfter == 'INSIDE' || data.statusAfter == 'OUTSIDE') &&
+        (!('googleEmail' in data) || (data.googleEmail is string && data.googleEmail.size() <= 128)) &&
+        (!('googleUid' in data) || (data.googleUid is string && data.googleUid.size() <= 128)) &&
         (!('greeting' in data) || (data.greeting is string && data.greeting.size() <= 64)) &&
         (!('isCorrected' in data) || data.isCorrected is bool) &&
         (!('correctionId' in data) || (data.correctionId is string && data.correctionId.size() <= 64)) &&
@@ -80,7 +85,7 @@ service cloud.firestore {
       allow create: if isValidId(studentId) && isValidStudent(incoming()) && (isAdmin() || true);
       allow update: if isValidId(studentId) && isValidStudent(incoming()) && (
         isAdmin() ||
-        incoming().diff(existing()).affectedKeys().hasOnly(['isActive', 'studentName'])
+        incoming().diff(existing()).affectedKeys().hasOnly(['isActive', 'studentName', 'googleEmail', 'googleUid', 'linkedAt'])
       );
       allow delete: if isValidId(studentId) && isAdmin();
     }

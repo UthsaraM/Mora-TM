@@ -536,6 +536,80 @@ app.post('/api/admin/login', (req: Request, res: Response) => {
   });
 });
 
+// 2.05 Google Sign-In Authentication for Administrators
+app.post('/api/admin/google-login', (req: Request, res: Response) => {
+  const { email, displayName, uid } = req.body;
+  if (!email || typeof email !== 'string') {
+    res.status(400).json({ error: 'Google email is required for administrator login.' });
+    return;
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+
+  if (!Array.isArray(db.verifiedAdmins) || db.verifiedAdmins.length === 0) {
+    db.verifiedAdmins = createDefaultVerifiedAdmins();
+    saveDatabase(db);
+  }
+
+  // Check if it's the root Super Administrator uthzaaawim@gmail.com
+  let admin = db.verifiedAdmins.find(a => a.email.toLowerCase() === cleanEmail);
+
+  if (!admin && cleanEmail === 'uthzaaawim@gmail.com') {
+    admin = {
+      id: 'adm_uthzaaawim',
+      name: displayName || 'Uthsara Manul',
+      email: 'uthzaaawim@gmail.com',
+      staffId: 'ADM-001',
+      role: 'Super Administrator',
+      isVerified: true,
+      status: 'ACTIVE',
+      addedAt: new Date().toISOString(),
+      lastLoginAt: new Date().toISOString(),
+    };
+    db.verifiedAdmins.unshift(admin);
+    saveDatabase(db);
+  }
+
+  if (!admin) {
+    res.status(403).json({
+      error: `Access denied: Google account (${cleanEmail}) is not on the verified administrator whitelist. Only administrators approved by Super Administrator (uthzaaawim@gmail.com) can access Admin Mode.`,
+    });
+    return;
+  }
+
+  if (!admin.isVerified || admin.status !== 'ACTIVE') {
+    res.status(403).json({
+      error: `Access denied: Account for ${admin.name} is not verified or currently suspended.`,
+    });
+    return;
+  }
+
+  admin.lastLoginAt = new Date().toISOString();
+  saveDatabase(db);
+
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = Date.now() + 4 * 60 * 60 * 1000;
+  activeAdminSessions.set(token, {
+    adminName: admin.name,
+    adminEmail: admin.email,
+    adminStaffId: admin.staffId,
+    adminRole: admin.role,
+    expiresAt,
+  });
+
+  res.json({
+    success: true,
+    token,
+    adminName: admin.name,
+    adminEmail: admin.email,
+    adminRole: admin.role,
+    adminStaffId: admin.staffId,
+    isSuperAdmin: cleanEmail === 'uthzaaawim@gmail.com',
+    expiresAt,
+    message: `Administrator authentication successful for verified personnel: ${admin.name}.`,
+  });
+});
+
 // 2.1 Get Verified Administrators list
 app.get('/api/admin/verified-people', (req: Request, res: Response) => {
   if (!Array.isArray(db.verifiedAdmins) || db.verifiedAdmins.length === 0) {
@@ -570,8 +644,16 @@ app.get('/api/admin/verified-people', (req: Request, res: Response) => {
   }
 });
 
-// 2.2 Add a new Verified Administrator (Admin ONLY)
+// 2.2 Add a new Verified Administrator (Super Admin ONLY: uthzaaawim@gmail.com)
 app.post('/api/admin/verified-people', requireAdmin, (req: Request, res: Response) => {
+  const requesterEmail = ((req as any).adminEmail || '').toLowerCase();
+  if (requesterEmail !== 'uthzaaawim@gmail.com') {
+    res.status(403).json({
+      error: 'Access denied: Only Super Administrator (uthzaaawim@gmail.com) has authority to approve and verify new administrators.',
+    });
+    return;
+  }
+
   const { name, email, staffId, role } = req.body;
   if (!name || !email || !staffId) {
     res.status(400).json({ error: 'Name, university email, and staff ID are required.' });
@@ -648,8 +730,16 @@ app.put('/api/admin/verified-people/:id', requireAdmin, (req: Request, res: Resp
   });
 });
 
-// 2.4 Delete Verified Administrator (Admin ONLY)
+// 2.4 Delete Verified Administrator (Super Admin ONLY: uthzaaawim@gmail.com)
 app.delete('/api/admin/verified-people/:id', requireAdmin, (req: Request, res: Response) => {
+  const requesterEmail = ((req as any).adminEmail || '').toLowerCase();
+  if (requesterEmail !== 'uthzaaawim@gmail.com') {
+    res.status(403).json({
+      error: 'Access denied: Only Super Administrator (uthzaaawim@gmail.com) has authority to remove administrator accounts.',
+    });
+    return;
+  }
+
   const adminId = String(req.params.id).trim();
   if (!Array.isArray(db.verifiedAdmins)) {
     db.verifiedAdmins = createDefaultVerifiedAdmins();
@@ -1034,6 +1124,94 @@ app.get('/api/students/:indexNumber', (req: Request, res: Response) => {
   });
 });
 
+// 10b. Check if Google account is linked to a student
+app.post('/api/student/google-check', (req: Request, res: Response) => {
+  const { email, uid } = req.body;
+  if (!email && !uid) {
+    res.status(400).json({ error: 'Email or UID is required.' });
+    return;
+  }
+
+  const cleanEmail = email ? String(email).trim().toLowerCase() : '';
+  const cleanUid = uid ? String(uid).trim() : '';
+
+  const student = Object.values(db.students).find(
+    s => (cleanEmail && s.googleEmail?.toLowerCase() === cleanEmail) ||
+         (cleanUid && s.googleUid === cleanUid)
+  );
+
+  if (student) {
+    const currentStatus = db.currentStatuses[student.indexNumber] || 'OUTSIDE';
+    res.json({
+      isLinked: true,
+      student,
+      currentStatus,
+    });
+  } else {
+    res.json({
+      isLinked: false,
+      message: 'Google account not yet linked to an index number.',
+    });
+  }
+});
+
+// 10c. Link student index number to Google account on first login
+app.post('/api/students/link-google', (req: Request, res: Response) => {
+  const { indexNumber, googleEmail, googleUid } = req.body;
+  if (!indexNumber || !googleEmail || !googleUid) {
+    res.status(400).json({ error: 'Index number, Google email, and Google UID are required.' });
+    return;
+  }
+
+  const query = String(indexNumber).trim();
+  const student = Object.values(db.students).find(
+    s => s.indexNumber.trim().toLowerCase() === query.toLowerCase()
+  );
+
+  if (!student) {
+    res.status(404).json({
+      error: `Student with index number "${query}" not found in University roster.`,
+    });
+    return;
+  }
+
+  if (student.isActive === false) {
+    res.status(403).json({
+      error: 'Student account is deactivated. Please contact the administrator.',
+    });
+    return;
+  }
+
+  const cleanEmail = String(googleEmail).trim().toLowerCase();
+  const cleanUid = String(googleUid).trim();
+
+  // Check if this Google account is already linked to a DIFFERENT student
+  const otherStudent = Object.values(db.students).find(
+    s => ((s.googleEmail?.toLowerCase() === cleanEmail) || (s.googleUid === cleanUid)) &&
+         s.indexNumber.toLowerCase() !== student.indexNumber.toLowerCase()
+  );
+
+  if (otherStudent) {
+    res.status(409).json({
+      error: `This Google account is already linked to student ${otherStudent.studentName} (${otherStudent.indexNumber}).`,
+    });
+    return;
+  }
+
+  student.googleEmail = cleanEmail;
+  student.googleUid = cleanUid;
+  student.linkedAt = new Date().toISOString();
+  saveDatabase(db);
+
+  const currentStatus = db.currentStatuses[student.indexNumber] || 'OUTSIDE';
+  res.json({
+    success: true,
+    student,
+    currentStatus,
+    message: `Index ${student.indexNumber} successfully linked to Google account (${cleanEmail}).`,
+  });
+});
+
 // 11. Record Entry or Exit Transaction (Case-insensitive index lookup, User & Admin)
 app.post('/api/transactions', (req: Request, res: Response) => {
   if (isTransactionLocked) {
@@ -1044,8 +1222,18 @@ app.post('/api/transactions', (req: Request, res: Response) => {
   isTransactionLocked = true;
   try {
     const rawIndex = req.body.indexNumber;
+    const googleEmail = req.body.googleEmail ? String(req.body.googleEmail).trim() : '';
+    const googleUid = req.body.googleUid ? String(req.body.googleUid).trim() : '';
+
     if (!rawIndex) {
       res.status(400).json({ error: 'Student index number is required.' });
+      return;
+    }
+
+    if (!googleEmail) {
+      res.status(401).json({
+        error: 'Google Sign-In is required to record entry and exit transactions. Please sign in with your Google account.',
+      });
       return;
     }
 
@@ -1057,7 +1245,7 @@ app.post('/api/transactions', (req: Request, res: Response) => {
 
     if (!student) {
       res.status(404).json({
-        error: 'Student not found. Please check the index number.',
+        error: 'Student not found in roster. Please check the index number.',
         notFoundIndex: query,
       });
       return;
@@ -1071,6 +1259,13 @@ app.post('/api/transactions', (req: Request, res: Response) => {
       return;
     }
 
+    // Bind Google account to student if not yet bound
+    if (!student.googleEmail && googleEmail) {
+      student.googleEmail = googleEmail.toLowerCase();
+      student.googleUid = googleUid;
+      student.linkedAt = new Date().toISOString();
+    }
+
     // Always use canonical registered indexNumber
     const indexNumber = student.indexNumber;
     const currentStatus = db.currentStatuses[indexNumber] || 'OUTSIDE';
@@ -1082,7 +1277,10 @@ app.post('/api/transactions', (req: Request, res: Response) => {
     let type: 'ENTRY' | 'EXIT';
     let newStatus: StudentStatus;
 
-    if (currentStatus === 'INSIDE') {
+    if (req.body.type === 'ENTRY' || req.body.type === 'EXIT') {
+      type = req.body.type;
+      newStatus = type === 'ENTRY' ? 'INSIDE' : 'OUTSIDE';
+    } else if (currentStatus === 'INSIDE') {
       type = 'EXIT';
       newStatus = 'OUTSIDE';
     } else {
@@ -1101,6 +1299,8 @@ app.post('/api/transactions', (req: Request, res: Response) => {
       formattedTime: colomboTime,
       greeting,
       statusAfter: newStatus,
+      googleEmail,
+      googleUid,
     };
 
     // Save to historical transactions (never overwritten)
@@ -1240,6 +1440,9 @@ function computeDailyReport(dateStr: string): DailyReportData {
     let currentOpenEntry: TransactionRecord | null = null;
     const studentName = txs[0].studentName;
 
+    const studentObj = Object.values(db.students).find(s => s.indexNumber.trim().toLowerCase() === indexNum.trim().toLowerCase());
+    const boundGoogleEmail = studentObj?.googleEmail || '';
+
     for (const tx of txs) {
       if (tx.type === 'ENTRY') {
         totalEntries++;
@@ -1255,6 +1458,7 @@ function computeDailyReport(dateStr: string): DailyReportData {
             exitTime: 'Not recorded',
             status: 'INSIDE',
             date: dateStr,
+            googleEmail: currentOpenEntry.googleEmail || boundGoogleEmail,
           });
         }
         currentOpenEntry = tx;
@@ -1270,6 +1474,7 @@ function computeDailyReport(dateStr: string): DailyReportData {
             exitTime: tx.formattedTime,
             status: 'OUTSIDE',
             date: dateStr,
+            googleEmail: currentOpenEntry.googleEmail || tx.googleEmail || boundGoogleEmail,
           });
           currentOpenEntry = null;
         } else {
@@ -1282,6 +1487,7 @@ function computeDailyReport(dateStr: string): DailyReportData {
             exitTime: tx.formattedTime,
             status: 'OUTSIDE',
             date: dateStr,
+            googleEmail: tx.googleEmail || boundGoogleEmail,
           });
         }
       }
@@ -1298,6 +1504,7 @@ function computeDailyReport(dateStr: string): DailyReportData {
         exitTime: 'Not recorded',
         status: 'INSIDE',
         date: dateStr,
+        googleEmail: currentOpenEntry.googleEmail || boundGoogleEmail,
       });
     }
   }
@@ -1473,15 +1680,16 @@ app.get('/api/reports/daily/download', (req: Request, res: Response) => {
   csv += `"Students Entered But Not Yet Exited (on ${report.date}):","${report.enteredNotExited}"\r\n`;
   csv += `\r\n`;
   csv += `"DETAILED ATTENDANCE SESSIONS"\r\n`;
-  csv += `"No.","Date","Index Number","Student Name","Entry Time","Exit Time","Attendance Status"\r\n`;
+  csv += `"No.","Date","Index Number","Student Name","Google Account Email","Entry Time","Exit Time","Attendance Status"\r\n`;
 
   if (report.sessions.length === 0) {
-    csv += `"--","${report.date}","No transactions recorded for this date","--","--","--","--"\r\n`;
+    csv += `"--","${report.date}","No transactions recorded for this date","--","--","--","--","--"\r\n`;
   } else {
     report.sessions.forEach((s, idx) => {
       const safeIndex = `="${s.indexNumber}"`;
       const safeName = `"${s.studentName.replace(/"/g, '""')}"`;
-      csv += `"${idx + 1}","${s.date}",${safeIndex},${safeName},"${s.entryTime}","${s.exitTime}","${s.status}"\r\n`;
+      const safeEmail = `"${(s.googleEmail || '').replace(/"/g, '""')}"`;
+      csv += `"${idx + 1}","${s.date}",${safeIndex},${safeName},${safeEmail},"${s.entryTime}","${s.exitTime}","${s.status}"\r\n`;
     });
   }
 

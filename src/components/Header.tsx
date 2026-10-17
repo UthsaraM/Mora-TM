@@ -16,7 +16,6 @@ export const Header: React.FC<HeaderProps> = ({
   onExitToLanding,
   onSwitchToAdmin,
   isAdminAuthenticated,
-  onOpenDatabaseInfo,
 }) => {
   const [timeState, setTimeState] = useState<{ dateStr: string; timeStr: string }>({
     dateStr: '',
