@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { User } from 'firebase/auth';
 import { Header } from './components/Header';
 import { MainScreen } from './components/MainScreen';
 import { LandingPage } from './components/LandingPage';
@@ -11,7 +12,12 @@ import {
   TodayAttendanceSummary,
   AppMode,
 } from './types';
-import { testFirestoreConnection, syncTransactionToFirestore } from './lib/firebase';
+import {
+  testFirestoreConnection,
+  syncTransactionToFirestore,
+  subscribeToAuthChanges,
+  signOutUser,
+} from './lib/firebase';
 
 export default function App() {
   const [appMode, setAppMode] = useState<AppMode>('LANDING');
@@ -21,6 +27,12 @@ export default function App() {
   const [adminName, setAdminName] = useState<string>(() => {
     return sessionStorage.getItem('classroom1_admin_name') || 'Classroom 1 Admin';
   });
+  const [adminEmail, setAdminEmail] = useState<string>(() => {
+    return sessionStorage.getItem('classroom1_admin_email') || 'uthzaaawim@gmail.com';
+  });
+
+  const [googleUser, setGoogleUser] = useState<User | null>(null);
+  const [currentStudent, setCurrentStudent] = useState<Student | null>(null);
 
   const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
@@ -28,7 +40,7 @@ export default function App() {
   const [todaySummary, setTodaySummary] = useState<TodayAttendanceSummary | null>(null);
   const [recentTransactions, setRecentTransactions] = useState<TransactionRecord[]>([]);
 
-  // Validate Firestore Connection on initial application boot
+  // Validate Firestore Connection on boot
   useEffect(() => {
     testFirestoreConnection()
       .then(res => {
@@ -37,6 +49,37 @@ export default function App() {
       .catch(err => {
         console.warn('[Firebase Firestore Notice]:', err);
       });
+  }, []);
+
+  // Subscribe to Firebase Auth state
+  useEffect(() => {
+    const unsubscribe = subscribeToAuthChanges(async (user) => {
+      setGoogleUser(user);
+      if (user && user.email) {
+        // Query server to find if this Google user has a linked student profile
+        try {
+          const res = await fetch('/api/student/google-check', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: user.email, uid: user.uid }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.isLinked && data.student) {
+              setCurrentStudent(data.student);
+            } else {
+              setCurrentStudent(null);
+            }
+          }
+        } catch (e) {
+          console.warn('Student google account verification notice:', e);
+        }
+      } else {
+        setCurrentStudent(null);
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
   // 1. Fetch Server Status
@@ -118,7 +161,7 @@ export default function App() {
   useEffect(() => {
     refreshAll();
 
-    // Background sync every 4 seconds to keep multi-device instances synchronized
+    // Background sync every 4 seconds to keep all views synchronized
     const interval = setInterval(() => {
       fetchStatus();
       fetchOccupancy();
@@ -142,11 +185,14 @@ export default function App() {
   };
 
   // Handle Admin Login Success
-  const handleAdminLoginSuccess = (token: string, name: string) => {
+  const handleAdminLoginSuccess = (token: string, name: string, email?: string) => {
     setAdminToken(token);
     setAdminName(name);
+    const finalEmail = email || 'uthzaaawim@gmail.com';
+    setAdminEmail(finalEmail);
     sessionStorage.setItem('classroom1_admin_token', token);
     sessionStorage.setItem('classroom1_admin_name', name);
+    sessionStorage.setItem('classroom1_admin_email', finalEmail);
     setAppMode('ADMIN');
   };
 
@@ -165,12 +211,15 @@ export default function App() {
     setAdminToken(null);
     sessionStorage.removeItem('classroom1_admin_token');
     sessionStorage.removeItem('classroom1_admin_name');
+    sessionStorage.removeItem('classroom1_admin_email');
     setAppMode('LANDING');
   };
 
-  // ==========================================
-  // VIEW ROUTING
-  // ==========================================
+  // Handle Student Login from Landing
+  const handleStudentLoginSuccess = (student: Student) => {
+    setCurrentStudent(student);
+    setAppMode('USER');
+  };
 
   return (
     <>
@@ -180,6 +229,7 @@ export default function App() {
           serverStatus={serverStatus}
           onContinueAsUser={() => setAppMode('USER')}
           onAdminLoginSuccess={handleAdminLoginSuccess}
+          onStudentLoginSuccess={handleStudentLoginSuccess}
         />
       )}
 
@@ -188,6 +238,7 @@ export default function App() {
         <AdminDashboard
           adminToken={adminToken}
           adminName={adminName}
+          adminEmail={adminEmail}
           onLogout={handleAdminLogout}
           onSwitchToUserMode={() => setAppMode('USER')}
           onRefreshAllData={refreshAll}
@@ -204,6 +255,8 @@ export default function App() {
           {/* Header with User Mode indicator and Landing Page return */}
           <Header
             serverStatus={serverStatus}
+            googleUser={googleUser}
+            currentStudent={currentStudent}
             onExitToLanding={() => setAppMode('LANDING')}
             onSwitchToAdmin={() => {
               if (adminToken) {
@@ -213,12 +266,19 @@ export default function App() {
               }
             }}
             isAdminAuthenticated={!!adminToken}
+            onSignOutGoogle={async () => {
+              await signOutUser();
+              setCurrentStudent(null);
+            }}
           />
 
           {/* Main Classroom Screen Content */}
           <main className="flex-1">
             <MainScreen
               serverStatus={serverStatus}
+              googleUser={googleUser}
+              currentStudent={currentStudent}
+              onStudentLinked={(student) => setCurrentStudent(student)}
               onTransactionSuccess={handleTransactionSuccess}
               recentTransactions={recentTransactions}
               occupancyList={occupancyList}
@@ -229,7 +289,7 @@ export default function App() {
           </main>
 
           {/* Footer */}
-          <footer className="border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-500">
+          <footer className="border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-500 hidden md:block">
             <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
               <div className="font-mono">
                 Classroom 1 Entry & Exit System · University Academic Access Control

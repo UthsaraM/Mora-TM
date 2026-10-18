@@ -51,6 +51,7 @@ import {
 interface AdminDashboardProps {
   adminToken: string;
   adminName: string;
+  adminEmail?: string;
   onLogout: () => void;
   onSwitchToUserMode: () => void;
   onRefreshAllData: () => Promise<void>;
@@ -64,6 +65,7 @@ interface AdminDashboardProps {
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   adminToken,
   adminName,
+  adminEmail,
   onLogout,
   onSwitchToUserMode,
   onRefreshAllData,
@@ -73,6 +75,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   recentTransactions,
 }) => {
   const [activeTab, setActiveTab] = useState<'students' | 'occupancy' | 'attendance' | 'reports' | 'corrections' | 'verified' | 'settings'>('students');
+  const isSuperAdmin = (adminEmail?.toLowerCase() === 'uthzaaawim@gmail.com');
 
   // Time state
   const [timeState, setTimeState] = useState(getColomboFullDateTimeString());
@@ -777,6 +780,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <th className="py-2.5 px-4 w-12 text-center">#</th>
                       <th className="py-2.5 px-4">Index Number</th>
                       <th className="py-2.5 px-4">Student Name</th>
+                      <th className="py-2.5 px-4">Linked Google Account</th>
                       <th className="py-2.5 px-4 text-center">Account Status</th>
                       <th className="py-2.5 px-4 text-right">Actions</th>
                     </tr>
@@ -784,7 +788,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <tbody className="divide-y divide-slate-100 text-slate-800">
                     {filteredStudents.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="py-8 text-center text-slate-400">
+                        <td colSpan={6} className="py-8 text-center text-slate-400">
                           No students matched your search criteria.
                         </td>
                       </tr>
@@ -801,6 +805,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             </td>
                             <td className="py-2.5 px-4 font-semibold text-slate-900">
                               {st.studentName}
+                            </td>
+                            <td className="py-2.5 px-4 font-mono text-[11px]">
+                              {st.googleEmail ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono">
+                                  <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                  {st.googleEmail}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 italic">Not yet linked</span>
+                              )}
                             </td>
                             <td className="py-2.5 px-4 text-center">
                               {isActive ? (
@@ -995,6 +1009,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <th className="py-2.5 px-4">Transaction ID</th>
                       <th className="py-2.5 px-4">Index</th>
                       <th className="py-2.5 px-4">Student Name</th>
+                      <th className="py-2.5 px-4">Verified Google Account</th>
                       <th className="py-2.5 px-4 text-center">Type</th>
                       <th className="py-2.5 px-4">Date</th>
                       <th className="py-2.5 px-4">Time (Asia/Colombo)</th>
@@ -1005,7 +1020,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <tbody className="divide-y divide-slate-100 text-slate-800">
                     {recentTransactions.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="py-8 text-center text-slate-400">
+                        <td colSpan={9} className="py-8 text-center text-slate-400">
                           No transactions recorded yet.
                         </td>
                       </tr>
@@ -1025,6 +1040,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           </td>
                           <td className="py-2.5 px-4 font-semibold text-slate-900">
                             {tx.studentName}
+                          </td>
+                          <td className="py-2.5 px-4 font-mono text-[11px]">
+                            {tx.googleEmail ? (
+                              <span className="inline-flex items-center gap-1 text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                {tx.googleEmail}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
                           </td>
                           <td className="py-2.5 px-4 text-center">
                             <span
@@ -1144,6 +1169,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <th className="py-2.5 px-4 w-12 text-center">#</th>
                       <th className="py-2.5 px-4">Index Number</th>
                       <th className="py-2.5 px-4">Student Name</th>
+                      <th className="py-2.5 px-4">Google Account Email</th>
                       <th className="py-2.5 px-4">Entry Time</th>
                       <th className="py-2.5 px-4">Exit Time</th>
                       <th className="py-2.5 px-4 text-center">Status</th>
@@ -1152,7 +1178,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <tbody className="divide-y divide-slate-100 text-slate-800">
                     {!reportData || reportData.sessions.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="py-8 text-center text-slate-400">
+                        <td colSpan={7} className="py-8 text-center text-slate-400">
                           No student sessions recorded for {reportDate}.
                         </td>
                       </tr>
@@ -1167,6 +1193,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           </td>
                           <td className="py-2.5 px-4 font-semibold text-slate-900">
                             {ses.studentName}
+                          </td>
+                          <td className="py-2.5 px-4 font-mono text-[11px] text-slate-600">
+                            {ses.googleEmail || '—'}
                           </td>
                           <td className="py-2.5 px-4 font-mono text-emerald-800">{ses.entryTime}</td>
                           <td className="py-2.5 px-4 font-mono text-blue-800">{ses.exitTime}</td>
@@ -1283,17 +1312,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setVerifiedActionStatus({ type: null, message: '' });
-                  setShowAddVerifiedModal(true);
-                }}
-                className="inline-flex items-center gap-2 bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition-colors cursor-pointer shrink-0"
-              >
-                <UserPlus className="w-4 h-4" />
-                <span>Add Verified Person</span>
-              </button>
+              {isSuperAdmin ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVerifiedActionStatus({ type: null, message: '' });
+                    setShowAddVerifiedModal(true);
+                  }}
+                  className="inline-flex items-center gap-2 bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition-colors cursor-pointer shrink-0"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>Add Verified Person</span>
+                </button>
+              ) : (
+                <div className="inline-flex items-center gap-1.5 bg-slate-100 text-slate-600 px-3 py-2 rounded-xl text-xs font-mono border border-slate-200 shrink-0">
+                  <ShieldCheck className="w-4 h-4 text-blue-600" />
+                  <span>Super Admin Governance: uthzaaawim@gmail.com</span>
+                </div>
+              )}
             </div>
 
             {/* Status alerts */}
@@ -1470,28 +1506,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             {admin.lastLoginAt ? new Date(admin.lastLoginAt).toLocaleString('en-US', { timeZone: 'Asia/Colombo' }) : 'Never logged in'}
                           </td>
                           <td className="py-3 px-4 text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleToggleAdminStatus(admin)}
-                                className={`px-2.5 py-1 rounded text-[11px] font-semibold border transition-colors cursor-pointer ${
-                                  admin.status === 'ACTIVE'
-                                    ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
-                                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
-                                }`}
-                                title={admin.status === 'ACTIVE' ? 'Suspend access' : 'Activate access'}
-                              >
-                                {admin.status === 'ACTIVE' ? 'Suspend' : 'Activate'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteAdmin(admin.id, admin.name)}
-                                className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
-                                title="Remove verified administrator"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
+                            {isSuperAdmin ? (
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleAdminStatus(admin)}
+                                  className={`px-2.5 py-1 rounded text-[11px] font-semibold border transition-colors cursor-pointer ${
+                                    admin.status === 'ACTIVE'
+                                      ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
+                                      : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
+                                  }`}
+                                  title={admin.status === 'ACTIVE' ? 'Suspend access' : 'Activate access'}
+                                >
+                                  {admin.status === 'ACTIVE' ? 'Suspend' : 'Activate'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteAdmin(admin.id, admin.name)}
+                                  className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                                  title="Remove verified administrator"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-slate-400 font-mono">Protected</span>
+                            )}
                           </td>
                         </tr>
                       ))
