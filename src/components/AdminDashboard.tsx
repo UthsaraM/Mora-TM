@@ -47,6 +47,7 @@ import {
   deleteAdminUserFromFirestore,
   clearTransactionsFromFirestore,
 } from '../lib/firebase';
+import { generateDailyReportPDF } from '../utils/pdfReport';
 
 interface AdminDashboardProps {
   adminToken: string;
@@ -326,6 +327,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       console.error(err);
     } finally {
       setIsLoadingReport(false);
+    }
+  };
+
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+  const handleDownloadPdf = async () => {
+    setIsGeneratingPdf(true);
+    try {
+      let data = reportData;
+      if (!data || data.date !== reportDate) {
+        const res = await fetch(`/api/reports/daily?date=${encodeURIComponent(reportDate)}`);
+        if (res.ok) {
+          data = await res.json();
+          setReportData(data);
+        }
+      }
+      if (data) {
+        generateDailyReportPDF(data);
+      }
+    } catch (err) {
+      console.error('Failed to generate PDF report:', err);
+    } finally {
+      setIsGeneratingPdf(false);
     }
   };
 
@@ -1104,11 +1128,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     DAILY ATTENDANCE REPORT GENERATION
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Generate official session attendance reports and export Microsoft Excel CSV files.
+                    Generate official session attendance reports and export as PDF or Microsoft Excel CSV files.
                   </p>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2.5">
                   <input
                     type="date"
                     value={reportDate}
@@ -1116,10 +1140,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     className="text-xs font-mono p-2 border border-slate-300 rounded-lg bg-slate-50"
                   />
                   <button
+                    onClick={handleDownloadPdf}
+                    disabled={isGeneratingPdf}
+                    className="inline-flex items-center gap-1.5 bg-red-700 hover:bg-red-800 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                    title="Download Official In-Out Attendance Report as PDF"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>{isGeneratingPdf ? 'Generating PDF...' : 'Download PDF Report'}</span>
+                  </button>
+                  <button
                     onClick={() => {
                       window.location.href = `/api/reports/daily/download?date=${encodeURIComponent(reportDate)}`;
                     }}
-                    className="inline-flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition-colors cursor-pointer shadow-xs"
+                    title="Download Detailed Attendance Sessions in Microsoft Excel CSV Format"
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span>Download Excel CSV</span>

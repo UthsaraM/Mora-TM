@@ -41,7 +41,7 @@ interface MainScreenProps {
   occupancyList: OccupancyStudent[];
   students: Student[];
   onRefreshOccupancy: () => void;
-  onSwitchToAdmin: () => void;
+  onSwitchToAdmin?: () => void;
 }
 
 const GoogleIcon = () => (
@@ -1108,18 +1108,6 @@ export const MainScreen: React.FC<MainScreenProps> = ({
             <Search className="w-5 h-5" />
           </div>
           <span className="text-[10px] font-bold tracking-tight">Search</span>
-        </button>
-
-        {/* 4. Admin Portal */}
-        <button
-          type="button"
-          onClick={onSwitchToAdmin}
-          className="flex flex-col items-center justify-center gap-1 text-slate-600 hover:text-blue-700 active:scale-95 transition-all p-1 cursor-pointer"
-        >
-          <div className="p-1.5 rounded-full bg-slate-100 text-slate-700">
-            <ShieldCheck className="w-5 h-5" />
-          </div>
-          <span className="text-[10px] font-bold tracking-tight">Admin</span>
         </button>
       </nav>
     </div>

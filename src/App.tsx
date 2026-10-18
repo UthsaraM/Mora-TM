@@ -67,6 +67,11 @@ export default function App() {
             const data = await res.json();
             if (data.isLinked && data.student) {
               setCurrentStudent(data.student);
+              // Crucial: Student Google login must never have admin access
+              setAdminToken(null);
+              sessionStorage.removeItem('classroom1_admin_token');
+              sessionStorage.removeItem('classroom1_admin_name');
+              sessionStorage.removeItem('classroom1_admin_email');
             } else {
               setCurrentStudent(null);
             }
@@ -217,6 +222,11 @@ export default function App() {
 
   // Handle Student Login from Landing
   const handleStudentLoginSuccess = (student: Student) => {
+    // Clear any administrative credentials; students are never administrators
+    setAdminToken(null);
+    sessionStorage.removeItem('classroom1_admin_token');
+    sessionStorage.removeItem('classroom1_admin_name');
+    sessionStorage.removeItem('classroom1_admin_email');
     setCurrentStudent(student);
     setAppMode('USER');
   };
@@ -233,7 +243,7 @@ export default function App() {
         />
       )}
 
-      {/* B. Admin Dashboard View */}
+      {/* B. Admin Dashboard View - Strictly restricted to verified admin tokens */}
       {appMode === 'ADMIN' && adminToken && (
         <AdminDashboard
           adminToken={adminToken}
@@ -259,13 +269,13 @@ export default function App() {
             currentStudent={currentStudent}
             onExitToLanding={() => setAppMode('LANDING')}
             onSwitchToAdmin={() => {
-              if (adminToken) {
+              if (adminToken && !currentStudent) {
                 setAppMode('ADMIN');
               } else {
                 setAppMode('LANDING');
               }
             }}
-            isAdminAuthenticated={!!adminToken}
+            isAdminAuthenticated={!!adminToken && !currentStudent}
             onSignOutGoogle={async () => {
               await signOutUser();
               setCurrentStudent(null);

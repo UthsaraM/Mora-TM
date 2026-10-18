@@ -106,8 +106,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  // Primary Unified Google Authentication Action
-  const handleGoogleAuth = async () => {
+  // 1. Student Google Sign-In: Authenticates students exclusively, never grants admin access
+  const handleStudentGoogleAuth = async () => {
     setIsGoogleSigningIn(true);
     setGoogleAuthError(null);
 
@@ -115,26 +115,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       const user = await signInWithGoogle();
       const email = user.email || '';
       const uid = user.uid;
-      const displayName = user.displayName || 'University Member';
+      const displayName = user.displayName || 'University Student';
 
-      // 1. Check if user is a verified administrator (or Super Admin uthzaaawim@gmail.com)
-      try {
-        const adminRes = await fetch('/api/admin/google-login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, displayName, uid }),
-        });
-
-        if (adminRes.ok) {
-          const adminData = await adminRes.json();
-          onAdminLoginSuccess(adminData.token, adminData.adminName, adminData.adminEmail);
-          return;
-        }
-      } catch (adminErr) {
-        // Not an administrator; proceed to student verification flow
-      }
-
-      // 2. Query server to check if this Google account is already linked to a student
+      // Check if this Google account is linked to an existing student in the roster
       const studentRes = await fetch('/api/student/google-check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -155,9 +138,47 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         setShowIndexLinkModal(true);
       }
     } catch (err: any) {
-      console.error('Google Sign-in failed:', err);
+      console.error('Student Google Sign-in failed:', err);
       if (!err.message?.includes('popup-closed-by-user')) {
         setGoogleAuthError(err.message || 'Google Sign-In failed. Please try again.');
+      }
+    } finally {
+      setIsGoogleSigningIn(false);
+    }
+  };
+
+  // 2. Administrator Google Sign-In: Only accessible from Admin Login modal
+  const handleAdminGoogleAuth = async () => {
+    setIsGoogleSigningIn(true);
+    setLoginError(null);
+
+    try {
+      const user = await signInWithGoogle();
+      const email = user.email || '';
+      const uid = user.uid;
+      const displayName = user.displayName || 'Administrator';
+
+      const adminRes = await fetch('/api/admin/google-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, displayName, uid }),
+      });
+
+      const adminData = await adminRes.json();
+
+      if (!adminRes.ok) {
+        throw new Error(
+          adminData.error ||
+          `Access Denied: Google account (${email}) is not authorized as an administrator. Students must log in via Student Google Login.`
+        );
+      }
+
+      setShowAdminModal(false);
+      onAdminLoginSuccess(adminData.token, adminData.adminName, adminData.adminEmail);
+    } catch (err: any) {
+      console.error('Admin Google Sign-in failed:', err);
+      if (!err.message?.includes('popup-closed-by-user')) {
+        setLoginError(err.message || 'Admin Google Sign-In failed. Please verify administrator permissions.');
       }
     } finally {
       setIsGoogleSigningIn(false);
@@ -330,24 +351,24 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="space-y-2 text-center sm:text-left">
               <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider bg-blue-100 text-blue-900">
                 <Sparkles className="w-3.5 h-3.5 text-blue-700" />
-                <span>Primary Unified Authentication</span>
+                <span>Student Attendance Access</span>
               </div>
               <h2 className="text-xl sm:text-2xl font-bold text-slate-900">
-                Sign in with Google Account
+                Student Google Attendance Sign-In
               </h2>
               <p className="text-xs sm:text-sm text-slate-600 max-w-md leading-relaxed">
-                One-tap entry for students and authorized faculty. Records your verified Google email on every swipe and binds your University Index Number.
+                Mandatory Google-verified entry & exit for university students. Automatically binds your University Index Number and stamps your Google identity on every swipe.
               </p>
             </div>
 
             <button
               type="button"
-              onClick={handleGoogleAuth}
+              onClick={handleStudentGoogleAuth}
               disabled={isGoogleSigningIn}
               className="w-full sm:w-auto inline-flex items-center justify-center gap-3 bg-white hover:bg-slate-50 text-slate-800 font-bold text-sm sm:text-base py-3.5 px-6 rounded-xl border border-slate-300 shadow-md hover:shadow-lg transition-all cursor-pointer shrink-0 disabled:opacity-50"
             >
               <GoogleIcon />
-              <span>{isGoogleSigningIn ? 'Connecting...' : 'Sign in with Google'}</span>
+              <span>{isGoogleSigningIn ? 'Connecting...' : 'Sign in with Google (Student)'}</span>
               <ArrowRight className="w-4 h-4 text-slate-400" />
             </button>
           </div>
@@ -570,7 +591,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <div>
                 <button
                   type="button"
-                  onClick={handleGoogleAuth}
+                  onClick={handleAdminGoogleAuth}
                   disabled={isGoogleSigningIn}
                   className="w-full inline-flex items-center justify-center gap-2.5 bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs py-3 px-4 border border-slate-300 rounded-xl shadow-xs transition-colors cursor-pointer"
                 >

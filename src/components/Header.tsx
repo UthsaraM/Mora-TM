@@ -49,12 +49,14 @@ export const Header: React.FC<HeaderProps> = ({
               Preloaded with demonstration students (22001 - 22005). Real rosters can be uploaded in Admin Mode.
             </span>
           </div>
-          <button
-            onClick={onSwitchToAdmin}
-            className="font-medium underline hover:text-amber-950 text-xs cursor-pointer ml-3 shrink-0"
-          >
-            Admin Roster Upload →
-          </button>
+          {isAdminAuthenticated && !currentStudent && onSwitchToAdmin && (
+            <button
+              onClick={onSwitchToAdmin}
+              className="font-medium underline hover:text-amber-950 text-xs cursor-pointer ml-3 shrink-0"
+            >
+              Admin Roster Upload →
+            </button>
+          )}
         </div>
       )}
 
@@ -120,15 +122,18 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               )}
 
-              <button
-                type="button"
-                onClick={onSwitchToAdmin}
-                className="inline-flex items-center gap-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-semibold text-xs px-3 py-2 rounded-lg transition-all cursor-pointer"
-                title="Switch to Administrator Mode"
-              >
-                <ShieldCheck className="w-4 h-4 text-slate-600" />
-                <span className="hidden sm:inline">Admin Mode</span>
-              </button>
+              {/* Only show Admin Mode button if administrator is authenticated AND NOT a student */}
+              {isAdminAuthenticated && !currentStudent && (
+                <button
+                  type="button"
+                  onClick={onSwitchToAdmin}
+                  className="inline-flex items-center gap-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-semibold text-xs px-3 py-2 rounded-lg transition-all cursor-pointer"
+                  title="Switch to Administrator Mode"
+                >
+                  <ShieldCheck className="w-4 h-4 text-slate-600" />
+                  <span className="hidden sm:inline">Admin Mode</span>
+                </button>
+              )}
 
               <button
                 type="button"
