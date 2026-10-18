@@ -10,9 +10,12 @@ import {
   RefreshCw,
   AlertCircle,
   CheckCircle2,
+  FileText,
 } from 'lucide-react';
-import { DailyReportData } from '../types';
+import { DailyReportData, AttendanceSession } from '../types';
 import { getColomboDateString } from '../utils/time';
+import { generateDailyReportPDF } from '../utils/pdfReport';
+import { safeFetchJson } from '../utils/safeFetch';
 
 interface DailyReportModalProps {
   isOpen: boolean;
@@ -24,17 +27,17 @@ export const DailyReportModal: React.FC<DailyReportModalProps> = ({ isOpen, onCl
   const [report, setReport] = useState<DailyReportData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   const fetchReport = async (dateStr: string) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/reports/daily?date=${encodeURIComponent(dateStr)}`);
-      if (!res.ok) {
-        throw new Error('Failed to load daily report.');
+      const result = await safeFetchJson<DailyReportData>(`/api/reports/daily?date=${encodeURIComponent(dateStr)}`);
+      if (!result.ok || !result.data) {
+        throw new Error(result.error || 'Failed to load daily report.');
       }
-      const data: DailyReportData = await res.json();
-      setReport(data);
+      setReport(result.data);
     } catch (err: any) {
       setError(err.message || 'Error fetching report.');
     } finally {
@@ -59,6 +62,28 @@ export const DailyReportModal: React.FC<DailyReportModalProps> = ({ isOpen, onCl
     window.location.href = `/api/reports/daily/download?date=${encodeURIComponent(selectedDate)}`;
   };
 
+  const handleDownloadPdf = async () => {
+    setIsGeneratingPdf(true);
+    try {
+      let data = report;
+      if (!data || data.date !== selectedDate) {
+        const result = await safeFetchJson<DailyReportData>(`/api/reports/daily?date=${encodeURIComponent(selectedDate)}`);
+        if (result.ok && result.data) {
+          data = result.data;
+          setReport(data);
+        }
+      }
+      if (data) {
+        generateDailyReportPDF(data);
+      }
+    } catch (err: any) {
+      console.error('Failed to generate PDF:', err);
+      setError('Could not generate PDF report. Please try again.');
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -80,13 +105,23 @@ export const DailyReportModal: React.FC<DailyReportModalProps> = ({ isOpen, onCl
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleDownloadPdf}
+              disabled={isGeneratingPdf}
+              className="inline-flex items-center gap-1.5 bg-red-700 hover:bg-red-800 text-white font-semibold text-xs px-3.5 py-2 rounded-lg shadow-xs transition-all focus:outline-none focus:ring-2 focus:ring-red-500 cursor-pointer disabled:opacity-50"
+              title="Download In-Out Attendance Report as PDF"
+            >
+              <FileText className="w-4 h-4" />
+              <span>{isGeneratingPdf ? 'Generating PDF...' : 'Download PDF Report'}</span>
+            </button>
             <button
               onClick={handleDownloadCsv}
-              className="inline-flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-semibold text-xs px-3.5 py-2 rounded-lg shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+              className="inline-flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-semibold text-xs px-3.5 py-2 rounded-lg shadow-xs transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+              title="Download Detailed Attendance Sessions in Microsoft Excel CSV Format"
             >
               <Download className="w-4 h-4" />
-              <span>DOWNLOAD DAILY REPORT</span>
+              <span>Download Excel CSV</span>
             </button>
             <button
               onClick={onClose}
@@ -227,7 +262,7 @@ export const DailyReportModal: React.FC<DailyReportModalProps> = ({ isOpen, onCl
                       </td>
                     </tr>
                   ) : (
-                    report.sessions.map((session, index) => (
+                    report.sessions.map((session: AttendanceSession, index: number) => (
                       <tr
                         key={session.id}
                         className={`hover:bg-slate-50/80 transition-colors ${

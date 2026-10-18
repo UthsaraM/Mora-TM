@@ -48,6 +48,7 @@ import {
   clearTransactionsFromFirestore,
 } from '../lib/firebase';
 import { generateDailyReportPDF } from '../utils/pdfReport';
+import { safeFetchJson } from '../utils/safeFetch';
 
 interface AdminDashboardProps {
   adminToken: string;
@@ -318,13 +319,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const fetchReport = async (dateStr: string) => {
     setIsLoadingReport(true);
     try {
-      const res = await fetch(`/api/reports/daily?date=${encodeURIComponent(dateStr)}`);
-      if (res.ok) {
-        const data = await res.json();
-        setReportData(data);
+      const result = await safeFetchJson<DailyReportData>(`/api/reports/daily?date=${encodeURIComponent(dateStr)}`);
+      if (result.ok && result.data) {
+        setReportData(result.data);
       }
     } catch (err) {
-      console.error(err);
+      console.error('Failed to load report data:', err);
     } finally {
       setIsLoadingReport(false);
     }
@@ -337,9 +337,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     try {
       let data = reportData;
       if (!data || data.date !== reportDate) {
-        const res = await fetch(`/api/reports/daily?date=${encodeURIComponent(reportDate)}`);
-        if (res.ok) {
-          data = await res.json();
+        const result = await safeFetchJson<DailyReportData>(`/api/reports/daily?date=${encodeURIComponent(reportDate)}`);
+        if (result.ok && result.data) {
+          data = result.data;
           setReportData(data);
         }
       }

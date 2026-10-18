@@ -1708,6 +1708,22 @@ app.post('/api/database/reset-transactions', requireAdmin, (_req: Request, res: 
   res.json({ success: true, message: 'All transaction records have been reset.' });
 });
 
+// API 404 handler: ensure non-existent API endpoints return JSON, never HTML
+app.all('/api/*', (req: Request, res: Response) => {
+  res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
+});
+
+// Global Express error handler: ensures unhandled errors always return clean JSON
+app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+  console.error('[Classroom 1 Server Error Handler]:', err);
+  if (res.headersSent) {
+    return next(err);
+  }
+  res.status(500).json({
+    error: err?.message || 'A server error occurred. Please try again.',
+  });
+});
+
 // Vite middleware in dev or static files in production
 const isProduction = process.env.NODE_ENV === 'production';
 

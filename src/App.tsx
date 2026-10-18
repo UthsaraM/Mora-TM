@@ -18,6 +18,7 @@ import {
   subscribeToAuthChanges,
   signOutUser,
 } from './lib/firebase';
+import { safeFetchJson } from './utils/safeFetch';
 
 export default function App() {
   const [appMode, setAppMode] = useState<AppMode>('LANDING');
@@ -58,23 +59,23 @@ export default function App() {
       if (user && user.email) {
         // Query server to find if this Google user has a linked student profile
         try {
-          const res = await fetch('/api/student/google-check', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: user.email, uid: user.uid }),
-          });
-          if (res.ok) {
-            const data = await res.json();
-            if (data.isLinked && data.student) {
-              setCurrentStudent(data.student);
-              // Crucial: Student Google login must never have admin access
-              setAdminToken(null);
-              sessionStorage.removeItem('classroom1_admin_token');
-              sessionStorage.removeItem('classroom1_admin_name');
-              sessionStorage.removeItem('classroom1_admin_email');
-            } else {
-              setCurrentStudent(null);
+          const result = await safeFetchJson<{ isLinked: boolean; student?: Student }>(
+            '/api/student/google-check',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: user.email, uid: user.uid }),
             }
+          );
+          if (result.ok && result.data && result.data.isLinked && result.data.student) {
+            setCurrentStudent(result.data.student);
+            // Crucial: Student Google login must never have admin access
+            setAdminToken(null);
+            sessionStorage.removeItem('classroom1_admin_token');
+            sessionStorage.removeItem('classroom1_admin_name');
+            sessionStorage.removeItem('classroom1_admin_email');
+          } else {
+            setCurrentStudent(null);
           }
         } catch (e) {
           console.warn('Student google account verification notice:', e);

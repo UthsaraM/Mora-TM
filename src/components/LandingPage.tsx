@@ -16,6 +16,7 @@ import {
 import { getColomboFullDateTimeString } from '../utils/time';
 import { ServerStatus, VerifiedAdmin, Student } from '../types';
 import { signInWithGoogle, linkStudentIndexToGoogleInFirestore } from '../lib/firebase';
+import { safeFetchJson } from '../utils/safeFetch';
 
 interface LandingPageProps {
   serverStatus: ServerStatus | null;
@@ -80,10 +81,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   // Fetch list of verified administrators
   const fetchVerifiedAdmins = async () => {
     try {
-      const res = await fetch('/api/admin/verified-people');
-      if (res.ok) {
-        const data = await res.json();
-        const admins: VerifiedAdmin[] = data.admins || [];
+      const result = await safeFetchJson<{ admins: VerifiedAdmin[] }>('/api/admin/verified-people');
+      if (result.ok && result.data) {
+        const admins: VerifiedAdmin[] = result.data.admins || [];
         setVerifiedAdmins(admins);
         if (admins.length > 0 && !selectedAdminId) {
           setSelectedAdminId(admins[0].id);
@@ -118,14 +118,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       const displayName = user.displayName || 'University Student';
 
       // Check if this Google account is linked to an existing student in the roster
-      const studentRes = await fetch('/api/student/google-check', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, uid }),
-      });
+      const result = await safeFetchJson<{ isLinked: boolean; student?: Student; error?: string }>(
+        '/api/student/google-check',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, uid }),
+        }
+      );
 
-      const studentData = await studentRes.json();
-      if (studentData.isLinked && studentData.student) {
+      if (!result.ok && result.error) {
+        throw new Error(result.error);
+      }
+
+      const studentData = result.data;
+      if (studentData && studentData.isLinked && studentData.student) {
         if (onStudentLoginSuccess) {
           onStudentLoginSuccess(studentData.student);
         }
@@ -158,23 +165,26 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       const uid = user.uid;
       const displayName = user.displayName || 'Administrator';
 
-      const adminRes = await fetch('/api/admin/google-login', {
+      const result = await safeFetchJson<{
+        token: string;
+        adminName: string;
+        adminEmail?: string;
+        error?: string;
+      }>('/api/admin/google-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, displayName, uid }),
       });
 
-      const adminData = await adminRes.json();
-
-      if (!adminRes.ok) {
+      if (!result.ok || !result.data) {
         throw new Error(
-          adminData.error ||
+          result.error ||
           `Access Denied: Google account (${email}) is not authorized as an administrator. Students must log in via Student Google Login.`
         );
       }
 
       setShowAdminModal(false);
-      onAdminLoginSuccess(adminData.token, adminData.adminName, adminData.adminEmail);
+      onAdminLoginSuccess(result.data.token, result.data.adminName, result.data.adminEmail);
     } catch (err: any) {
       console.error('Admin Google Sign-in failed:', err);
       if (!err.message?.includes('popup-closed-by-user')) {
@@ -197,33 +207,35 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     setLinkIndexError(null);
 
     try {
-      const res = await fetch('/api/students/link-google', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          indexNumber: linkIndexInput.trim(),
-          googleEmail: pendingGoogleUser.email,
-          googleUid: pendingGoogleUser.uid,
-          studentName: pendingGoogleUser.displayName,
-        }),
-      });
+      const result = await safeFetchJson<{ student: Student; error?: string }>(
+        '/api/students/link-google',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            indexNumber: linkIndexInput.trim(),
+            googleEmail: pendingGoogleUser.email,
+            googleUid: pendingGoogleUser.uid,
+            studentName: pendingGoogleUser.displayName,
+          }),
+        }
+      );
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to link Index Number.');
+      if (!result.ok || !result.data) {
+        throw new Error(result.error || 'Failed to link Index Number.');
       }
 
       // Also sync link directly to cloud Firestore
       linkStudentIndexToGoogleInFirestore(
-        data.student.indexNumber,
+        result.data.student.indexNumber,
         pendingGoogleUser.email,
         pendingGoogleUser.uid,
-        data.student.studentName
+        result.data.student.studentName
       ).catch(e => console.warn('Firestore link notice:', e));
 
       setShowIndexLinkModal(false);
       if (onStudentLoginSuccess) {
-        onStudentLoginSuccess(data.student);
+        onStudentLoginSuccess(result.data.student);
       }
       onContinueAsUser();
     } catch (err: any) {
@@ -269,18 +281,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         }
       }
 
-      const res = await fetch('/api/admin/login', {
+      const result = await safeFetchJson<{
+        token: string;
+        adminName: string;
+        adminEmail?: string;
+        error?: string;
+      }>('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Incorrect administrator password or unverified account.');
+      if (!result.ok || !result.data) {
+        throw new Error(result.error || 'Incorrect administrator password or unverified account.');
       }
 
-      onAdminLoginSuccess(data.token, data.adminName, data.adminEmail);
+      onAdminLoginSuccess(result.data.token, result.data.adminName, result.data.adminEmail);
     } catch (err: any) {
       setLoginError(err.message || 'Login failed. Please verify credentials.');
     } finally {
