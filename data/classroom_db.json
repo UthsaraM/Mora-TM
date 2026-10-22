@@ -2711,62 +2711,7 @@
     }
   },
   "transactions": [
-    {
-      "id": "TXN-1792340448818-GOTXD",
-      "studentIndexNumber": "221085R",
-      "studentName": "Uthsara Manul",
-      "venue": "Classroom 1",
-      "type": "ENTRY",
-      "date": "2026-10-18",
-      "timestamp": "2026-10-18T16:20:48.818Z",
-      "formattedTime": "09:50 PM",
-      "greeting": "Good Evening",
-      "statusAfter": "INSIDE",
-      "googleEmail": "uthzaaa1@gmail.com",
-      "googleUid": "APitX4Pmusauel02xU2nv9XjgvZ2"
-    },
-    {
-      "id": "TXN-1792340452420-HXO4D",
-      "studentIndexNumber": "221085R",
-      "studentName": "Uthsara Manul",
-      "venue": "Classroom 1",
-      "type": "EXIT",
-      "date": "2026-10-18",
-      "timestamp": "2026-10-18T16:20:52.420Z",
-      "formattedTime": "09:50 PM",
-      "greeting": "Good Evening",
-      "statusAfter": "OUTSIDE",
-      "googleEmail": "uthzaaa1@gmail.com",
-      "googleUid": "APitX4Pmusauel02xU2nv9XjgvZ2"
-    },
-    {
-      "id": "TXN-1792340479531-CQA5C",
-      "studentIndexNumber": "221038D",
-      "studentName": "Nethmi Jayasundara",
-      "venue": "Classroom 1",
-      "type": "ENTRY",
-      "date": "2026-10-18",
-      "timestamp": "2026-10-18T16:21:19.530Z",
-      "formattedTime": "09:51 PM",
-      "greeting": "Good Evening",
-      "statusAfter": "INSIDE",
-      "googleEmail": "uthzaaa1@gmail.com",
-      "googleUid": "APitX4Pmusauel02xU2nv9XjgvZ2"
-    },
-    {
-      "id": "TXN-1792340488472-40JDB",
-      "studentIndexNumber": "221038D",
-      "studentName": "Nethmi Jayasundara",
-      "venue": "Classroom 1",
-      "type": "EXIT",
-      "date": "2026-10-18",
-      "timestamp": "2026-10-18T16:21:28.471Z",
-      "formattedTime": "09:51 PM",
-      "greeting": "Good Evening",
-      "statusAfter": "OUTSIDE",
-      "googleEmail": "uthzaaa1@gmail.com",
-      "googleUid": "APitX4Pmusauel02xU2nv9XjgvZ2"
-    }
+    
   ],
   "currentStatuses": {
     "221085R": "OUTSIDE",

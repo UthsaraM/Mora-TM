@@ -17,6 +17,8 @@ import {
   syncTransactionToFirestore,
   subscribeToAuthChanges,
   signOutUser,
+  checkAndSyncInitialRoster,
+  fetchHistoricalTransactionsFromFirestore,
 } from './lib/firebase';
 import { safeFetchJson } from './utils/safeFetch';
 
@@ -107,7 +109,13 @@ export default function App() {
       const res = await fetch('/api/students');
       if (res.ok) {
         const data = await res.json();
-        setStudents(data.students || []);
+        const studentList: Student[] = data.students || [];
+        setStudents(studentList);
+        if (studentList.length > 0) {
+          checkAndSyncInitialRoster(studentList).catch(err => {
+            console.warn('[Firebase Auto-Sync]:', err);
+          });
+        }
       }
     } catch (err) {
       console.error('Failed to fetch students:', err);
@@ -146,10 +154,25 @@ export default function App() {
       const res = await fetch('/api/transactions/recent');
       if (res.ok) {
         const data = await res.json();
-        setRecentTransactions(data.recent || []);
+        let list: TransactionRecord[] = data.recent || [];
+        if (list.length === 0) {
+          // If local transactions are empty, pull latest from Cloud Firestore
+          const cloudList = await fetchHistoricalTransactionsFromFirestore();
+          if (cloudList.length > 0) {
+            list = cloudList.slice(0, 20);
+          }
+        }
+        setRecentTransactions(list);
       }
     } catch (err) {
       console.error('Failed to fetch recent transactions:', err);
+      // Fallback directly to Cloud Firestore
+      try {
+        const cloudList = await fetchHistoricalTransactionsFromFirestore();
+        if (cloudList.length > 0) {
+          setRecentTransactions(cloudList.slice(0, 20));
+        }
+      } catch (e) {}
     }
   }, []);
 

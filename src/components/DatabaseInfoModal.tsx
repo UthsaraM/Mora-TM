@@ -147,13 +147,25 @@ export const DatabaseInfoModal: React.FC<DatabaseInfoModalProps> = ({
               </div>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono text-emerald-900 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] font-mono text-emerald-900 pt-1">
               <div className="bg-white/80 border border-emerald-200/80 p-2 rounded-lg flex items-center justify-between">
                 <span>
-                  Project ID: <strong className="text-slate-900">{firebaseConfig.projectId}</strong>
+                  Project: <strong className="text-slate-900">{firebaseConfig.projectId}</strong>
                 </span>
                 <button
                   onClick={() => copyToClipboard(firebaseConfig.projectId, 'projectId')}
+                  className="text-slate-500 hover:text-slate-800 p-1 cursor-pointer"
+                  title="Copy"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="bg-white/80 border border-emerald-200/80 p-2 rounded-lg flex items-center justify-between">
+                <span>
+                  Database: <strong className="text-slate-900">{firebaseConfig.firestoreDatabaseId}</strong>
+                </span>
+                <button
+                  onClick={() => copyToClipboard(firebaseConfig.firestoreDatabaseId, 'firestoreDatabaseId')}
                   className="text-slate-500 hover:text-slate-800 p-1 cursor-pointer"
                   title="Copy"
                 >

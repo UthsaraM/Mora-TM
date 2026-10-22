@@ -18,23 +18,16 @@ import {
   writeBatch,
   onSnapshot,
   query,
+  where,
   orderBy,
   limit,
   getDocFromServer,
   Unsubscribe,
 } from 'firebase/firestore';
+import firebaseConfig from '../../firebase-applet-config.json';
 import { Student, TransactionRecord, StudentStatus, VerifiedAdmin } from '../types';
 
-// Web app's Firebase configuration for entry-sys-mora
-export const firebaseConfig = {
-  apiKey: "AIzaSyDj0KIgx-bTtAr2inv2hXi83z-Wrwa2XoM",
-  authDomain: "entry-sys-mora.firebaseapp.com",
-  projectId: "entry-sys-mora",
-  storageBucket: "entry-sys-mora.firebasestorage.app",
-  messagingSenderId: "245602959606",
-  appId: "1:245602959606:web:4530291036c43cdc012cd7",
-  measurementId: "G-454GLKJGHV",
-};
+export { firebaseConfig };
 
 // Initialize Firebase App
 export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
@@ -50,8 +43,9 @@ if (typeof window !== 'undefined') {
 }
 export { analytics };
 
-// Initialize Firestore & Auth
-export const db = getFirestore(app);
+// Initialize Firestore with specific database ID & Auth
+// CRITICAL: Must pass firebaseConfig.firestoreDatabaseId to connect to the provisioned database
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
@@ -349,9 +343,14 @@ export async function deleteAdminUserFromFirestore(adminId: string): Promise<voi
 
 // Push a new transaction to Firestore
 export async function syncTransactionToFirestore(tx: TransactionRecord): Promise<void> {
-  const txPath = `transactions/${tx.id}`;
   try {
-    await setDoc(doc(db, 'transactions', tx.id), tx);
+    const cleanTx: Record<string, any> = {};
+    for (const [k, v] of Object.entries(tx)) {
+      if (v !== undefined) {
+        cleanTx[k] = v;
+      }
+    }
+    await setDoc(doc(db, 'transactions', tx.id), cleanTx);
     // Also update student's current occupancy state
     await setDoc(
       doc(db, 'occupancy', tx.studentIndexNumber),
@@ -389,3 +388,117 @@ export async function clearTransactionsFromFirestore(): Promise<void> {
     console.warn('Firestore transaction wipe notice:', err);
   }
 }
+
+// Check and auto-sync student roster and verified admins if Firestore is empty
+export async function checkAndSyncInitialRoster(
+  students: Student[],
+  admins?: VerifiedAdmin[]
+): Promise<void> {
+  if (!students || students.length === 0) return;
+  try {
+    const snap = await getDocs(query(collection(db, 'students'), limit(1)));
+    if (snap.empty) {
+      console.log(`[Firebase Firestore] Roster empty in Cloud Firestore. Auto-syncing ${students.length} students...`);
+      await syncStudentRosterToFirestore(students);
+      console.log('[Firebase Firestore] Student roster synced to Cloud Firestore.');
+    }
+    if (admins && admins.length > 0) {
+      const adminSnap = await getDocs(query(collection(db, 'admins'), limit(1)));
+      if (adminSnap.empty) {
+        for (const a of admins) {
+          await syncAdminUserToFirestore(a);
+        }
+        console.log('[Firebase Firestore] Verified admins synced to Cloud Firestore.');
+      }
+    }
+  } catch (err) {
+    console.warn('[Firebase Firestore] Auto-sync check notice:', err);
+  }
+}
+
+// Fetch all historical transactions from Cloud Firestore with optional date or student filter
+export async function fetchHistoricalTransactionsFromFirestore(
+  dateFilter?: string,
+  studentIndexFilter?: string
+): Promise<TransactionRecord[]> {
+  try {
+    const colRef = collection(db, 'transactions');
+    let q;
+    if (dateFilter && studentIndexFilter) {
+      q = query(
+        colRef,
+        where('date', '==', dateFilter),
+        where('studentIndexNumber', '==', studentIndexFilter)
+      );
+    } else if (dateFilter) {
+      q = query(colRef, where('date', '==', dateFilter));
+    } else if (studentIndexFilter) {
+      q = query(colRef, where('studentIndexNumber', '==', studentIndexFilter));
+    } else {
+      q = query(colRef, orderBy('timestamp', 'desc'), limit(1000));
+    }
+
+    const snap = await getDocs(q);
+    const txs: TransactionRecord[] = [];
+    snap.forEach(docSnap => {
+      txs.push(docSnap.data() as TransactionRecord);
+    });
+
+    // Ensure sorted descending by timestamp
+    txs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return txs;
+  } catch (err) {
+    console.warn('Notice querying historical transactions from Cloud Firestore:', err);
+    return [];
+  }
+}
+
+// Restore transactions from Cloud Firestore directly into backend database
+export async function restoreTransactionsFromFirestore(
+  adminToken: string
+): Promise<{ success: boolean; count: number; message: string }> {
+  try {
+    const txs = await fetchHistoricalTransactionsFromFirestore();
+    if (txs.length === 0) {
+      return { success: true, count: 0, message: 'No transactions found in Cloud Firestore to restore.' };
+    }
+
+    const res = await fetch('/api/database/restore-transactions-from-firestore', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({ transactions: txs }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to restore transactions to server.');
+    }
+
+    return {
+      success: true,
+      count: data.restoredCount ?? txs.length,
+      message: `Successfully restored ${data.restoredCount ?? txs.length} past records from Cloud Firestore.`,
+    };
+  } catch (err: any) {
+    console.error('Failed to restore transactions from Cloud Firestore:', err);
+    return {
+      success: false,
+      count: 0,
+      message: err.message || 'Error communicating with server during restore.',
+    };
+  }
+}
+
+// Get Firestore total transaction count
+export async function getFirestoreTransactionCount(): Promise<number> {
+  try {
+    const snap = await getDocs(collection(db, 'transactions'));
+    return snap.size;
+  } catch (err) {
+    return 0;
+  }
+}
+

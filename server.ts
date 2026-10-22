@@ -1336,6 +1336,41 @@ app.get('/api/transactions/recent', (_req: Request, res: Response) => {
   });
 });
 
+// 12b. Protected: All Transactions with search & date filtering (Admin ONLY)
+app.get('/api/admin/transactions/all', requireAdmin, (req: Request, res: Response) => {
+  const { date, studentIndex, search, limit: limitStr } = req.query;
+  let filtered = [...db.transactions];
+
+  if (typeof date === 'string' && date.trim() && date !== 'ALL') {
+    filtered = filtered.filter(t => t.date === date.trim());
+  }
+
+  if (typeof studentIndex === 'string' && studentIndex.trim()) {
+    filtered = filtered.filter(t => t.studentIndexNumber.toLowerCase() === studentIndex.trim().toLowerCase());
+  }
+
+  if (typeof search === 'string' && search.trim()) {
+    const q = search.trim().toLowerCase();
+    filtered = filtered.filter(t =>
+      t.studentIndexNumber.toLowerCase().includes(q) ||
+      t.studentName.toLowerCase().includes(q) ||
+      (t.googleEmail && t.googleEmail.toLowerCase().includes(q))
+    );
+  }
+
+  // Reverse so newest is first
+  filtered.reverse();
+
+  const max = limitStr ? parseInt(String(limitStr), 10) : 500;
+  const result = filtered.slice(0, isNaN(max) ? 500 : max);
+
+  res.json({
+    total: db.transactions.length,
+    matchingCount: filtered.length,
+    transactions: result,
+  });
+});
+
 // 13. Protected: Transaction Corrections (Admin ONLY)
 app.post('/api/admin/transactions/correct', requireAdmin, (req: Request, res: Response) => {
   const { transactionId, correctedType, reason, adminIdentity } = req.body;
@@ -1706,6 +1741,53 @@ app.post('/api/database/reset-transactions', requireAdmin, (_req: Request, res: 
   db.corrections = [];
   saveDatabase(db);
   res.json({ success: true, message: 'All transaction records have been reset.' });
+});
+
+// 18. Protected: Restore/Merge Transactions from Cloud Firestore (Admin ONLY)
+app.post('/api/database/restore-transactions-from-firestore', requireAdmin, (req: Request, res: Response) => {
+  const { transactions } = req.body;
+  if (!Array.isArray(transactions)) {
+    res.status(400).json({ error: 'transactions array is required.' });
+    return;
+  }
+
+  const existingMap = new Map<string, TransactionRecord>();
+  if (Array.isArray(db.transactions)) {
+    db.transactions.forEach(t => existingMap.set(t.id, t));
+  }
+
+  let addedCount = 0;
+  transactions.forEach((tx: any) => {
+    if (tx && tx.id && tx.studentIndexNumber && tx.timestamp) {
+      if (!existingMap.has(tx.id)) {
+        existingMap.set(tx.id, tx);
+        addedCount++;
+      } else {
+        // Update if existing record has missing fields
+        existingMap.set(tx.id, { ...existingMap.get(tx.id), ...tx });
+      }
+    }
+  });
+
+  // Re-sort all transactions by timestamp ascending for correct status replay
+  const merged = Array.from(existingMap.values());
+  merged.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  db.transactions = merged;
+
+  // Recompute currentStatuses from all transactions in chronological order
+  const statuses: Record<string, StudentStatus> = {};
+  merged.forEach(tx => {
+    statuses[tx.studentIndexNumber] = tx.statusAfter;
+  });
+  db.currentStatuses = statuses;
+
+  saveDatabase(db);
+  res.json({
+    success: true,
+    restoredCount: addedCount,
+    totalTransactions: db.transactions.length,
+    message: `Restored ${addedCount} historical transactions from Cloud Firestore. Total in database: ${db.transactions.length}.`,
+  });
 });
 
 // API 404 handler: ensure non-existent API endpoints return JSON, never HTML

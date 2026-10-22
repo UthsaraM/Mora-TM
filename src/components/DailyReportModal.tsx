@@ -16,6 +16,8 @@ import { DailyReportData, AttendanceSession } from '../types';
 import { getColomboDateString } from '../utils/time';
 import { generateDailyReportPDF } from '../utils/pdfReport';
 import { safeFetchJson } from '../utils/safeFetch';
+import { fetchHistoricalTransactionsFromFirestore } from '../lib/firebase';
+import { buildDailyReportFromTransactions } from '../utils/dailyReportBuilder';
 
 interface DailyReportModalProps {
   isOpen: boolean;
@@ -34,11 +36,33 @@ export const DailyReportModal: React.FC<DailyReportModalProps> = ({ isOpen, onCl
     setError(null);
     try {
       const result = await safeFetchJson<DailyReportData>(`/api/reports/daily?date=${encodeURIComponent(dateStr)}`);
-      if (!result.ok || !result.data) {
-        throw new Error(result.error || 'Failed to load daily report.');
+      let data = result.ok && result.data ? result.data : null;
+
+      // If backend has no records for this date, query Cloud Firestore directly
+      if (!data || !data.sessions || data.sessions.length === 0) {
+        const cloudTxs = await fetchHistoricalTransactionsFromFirestore(dateStr);
+        if (cloudTxs.length > 0) {
+          data = buildDailyReportFromTransactions(dateStr, cloudTxs);
+        }
       }
-      setReport(result.data);
+
+      setReport(data || {
+        date: dateStr,
+        totalUniqueStudents: 0,
+        totalEntries: 0,
+        totalExits: 0,
+        currentlyInside: 0,
+        enteredNotExited: 0,
+        sessions: [],
+      });
     } catch (err: any) {
+      try {
+        const cloudTxs = await fetchHistoricalTransactionsFromFirestore(dateStr);
+        if (cloudTxs.length > 0) {
+          setReport(buildDailyReportFromTransactions(dateStr, cloudTxs));
+          return;
+        }
+      } catch (e) {}
       setError(err.message || 'Error fetching report.');
     } finally {
       setLoading(false);
