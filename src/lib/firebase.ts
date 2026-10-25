@@ -23,11 +23,18 @@ import {
   limit,
   getDocFromServer,
   Unsubscribe,
+  initializeFirestore,
+  setLogLevel,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { Student, TransactionRecord, StudentStatus, VerifiedAdmin } from '../types';
 
 export { firebaseConfig };
+
+// Suppress internal gRPC idle stream warnings and info messages
+try {
+  setLogLevel('silent');
+} catch {}
 
 // Initialize Firebase App
 export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
@@ -43,9 +50,20 @@ if (typeof window !== 'undefined') {
 }
 export { analytics };
 
-// Initialize Firestore with specific database ID & Auth
-// CRITICAL: Must pass firebaseConfig.firestoreDatabaseId to connect to the provisioned database
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Initialize Firestore with specific database ID & force long polling to completely eliminate GrpcConnection idle stream timeouts
+let firestoreDb: ReturnType<typeof getFirestore>;
+try {
+  firestoreDb = initializeFirestore(
+    app,
+    {
+      experimentalForceLongPolling: true,
+    },
+    firebaseConfig.firestoreDatabaseId
+  );
+} catch {
+  firestoreDb = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+}
+export const db = firestoreDb;
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
@@ -79,9 +97,21 @@ export function handleFirestoreError(
   error: unknown,
   operationType: OperationType,
   path: string | null
-): never {
+): never | void {
+  const msg = error instanceof Error ? error.message : String(error);
+  // Gracefully ignore normal gRPC / WebChannel idle stream cancellations
+  if (
+    msg.includes('CANCELLED') ||
+    msg.includes('Disconnecting idle stream') ||
+    msg.includes('Timed out waiting for new targets') ||
+    (error as any)?.code === 'cancelled' ||
+    (error as any)?.code === 1
+  ) {
+    return;
+  }
+
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: msg,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -160,6 +190,14 @@ export function subscribeToStudents(
       onData(list);
     },
     error => {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (
+        msg.includes('CANCELLED') ||
+        msg.includes('idle stream') ||
+        msg.includes('Timed out waiting for new targets')
+      ) {
+        return;
+      }
       try {
         handleFirestoreError(error, OperationType.LIST, 'students');
       } catch (err) {
@@ -188,6 +226,14 @@ export function subscribeToOccupancy(
       onData(map);
     },
     error => {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (
+        msg.includes('CANCELLED') ||
+        msg.includes('idle stream') ||
+        msg.includes('Timed out waiting for new targets')
+      ) {
+        return;
+      }
       try {
         handleFirestoreError(error, OperationType.LIST, 'occupancy');
       } catch (err) {
@@ -215,6 +261,14 @@ export function subscribeToRecentTransactions(
       onData(txs);
     },
     error => {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (
+        msg.includes('CANCELLED') ||
+        msg.includes('idle stream') ||
+        msg.includes('Timed out waiting for new targets')
+      ) {
+        return;
+      }
       try {
         handleFirestoreError(error, OperationType.LIST, 'transactions');
       } catch (err) {
@@ -222,6 +276,24 @@ export function subscribeToRecentTransactions(
       }
     }
   );
+}
+
+// Full Synchronize from Firestore to Backend
+export async function syncAllWithServerFromFirestore(): Promise<{
+  success: boolean;
+  message: string;
+  stats?: { totalStudents: number; totalTransactions: number; studentsCurrentlyInside: number };
+}> {
+  try {
+    const res = await fetch('/api/database/sync-all-from-firestore', { method: 'POST' });
+    const data = await res.json();
+    return data;
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err.message || 'Failed to sync with server.',
+    };
+  }
 }
 
 // Push a single student to Firestore

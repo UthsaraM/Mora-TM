@@ -19,6 +19,10 @@ import {
   signOutUser,
   checkAndSyncInitialRoster,
   fetchHistoricalTransactionsFromFirestore,
+  subscribeToOccupancy,
+  subscribeToRecentTransactions,
+  subscribeToStudents,
+  syncAllWithServerFromFirestore,
 } from './lib/firebase';
 import { safeFetchJson } from './utils/safeFetch';
 
@@ -188,18 +192,46 @@ export default function App() {
   }, [fetchStatus, fetchStudents, fetchOccupancy, fetchTodaySummary, fetchRecentTransactions]);
 
   useEffect(() => {
-    refreshAll();
+    // 1. Initial hydration and master fetch
+    syncAllWithServerFromFirestore()
+      .then(() => refreshAll())
+      .catch(() => refreshAll());
 
-    // Background sync every 4 seconds to keep all views synchronized
+    // 2. Real-Time Firebase Listeners: Transactions
+    const unsubTx = subscribeToRecentTransactions(25, (liveTxs) => {
+      if (liveTxs && liveTxs.length > 0) {
+        setRecentTransactions(liveTxs);
+      }
+    });
+
+    // 3. Real-Time Firebase Listeners: Occupancy
+    const unsubOcc = subscribeToOccupancy(() => {
+      fetchOccupancy();
+      fetchStatus();
+      fetchTodaySummary();
+    });
+
+    // 4. Real-Time Firebase Listeners: Students
+    const unsubStudents = subscribeToStudents((liveStudents) => {
+      if (liveStudents && liveStudents.length > 0) {
+        setStudents(liveStudents);
+      }
+    });
+
+    // 5. Periodic fallback every 8 seconds
     const interval = setInterval(() => {
       fetchStatus();
       fetchOccupancy();
       fetchTodaySummary();
-      fetchRecentTransactions();
-    }, 4000);
+    }, 8000);
 
-    return () => clearInterval(interval);
-  }, [refreshAll, fetchStatus, fetchOccupancy, fetchTodaySummary, fetchRecentTransactions]);
+    return () => {
+      unsubTx();
+      unsubOcc();
+      unsubStudents();
+      clearInterval(interval);
+    };
+  }, [refreshAll, fetchStatus, fetchOccupancy, fetchTodaySummary]);
 
   // Handle transaction recorded on client
   const handleTransactionSuccess = async (newTx: TransactionRecord) => {

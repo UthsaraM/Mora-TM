@@ -27,6 +27,8 @@
         "formattedTime": { "type": "string", "maxLength": 32 },
         "greeting": { "type": "string", "maxLength": 64 },
         "statusAfter": { "type": "string", "enum": ["INSIDE", "OUTSIDE"] },
+        "googleEmail": { "type": "string", "maxLength": 128 },
+        "googleUid": { "type": "string", "maxLength": 128 },
         "isCorrected": { "type": "boolean" },
         "correctionId": { "type": "string", "maxLength": 64 },
         "correctionReason": { "type": "string", "maxLength": 256 },
@@ -41,7 +43,9 @@
       "type": "object",
       "properties": {
         "indexNumber": { "type": "string", "maxLength": 64 },
+        "studentName": { "type": "string", "maxLength": 128 },
         "status": { "type": "string", "enum": ["INSIDE", "OUTSIDE"] },
+        "lastFormattedTime": { "type": "string", "maxLength": 32 },
         "updatedAt": { "type": "string", "maxLength": 64 }
       },
       "required": ["indexNumber", "status"]

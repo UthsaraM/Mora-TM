@@ -17,6 +17,11 @@ import {
   SystemSettings,
   StudentAttendanceHistory,
 } from './src/types.js';
+import {
+  hydrateServerFromFirestore,
+  pushTransactionToFirestore,
+  pushStudentLinkToFirestore,
+} from './src/serverFirebase.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -887,6 +892,120 @@ app.get('/api/occupancy', (_req: Request, res: Response) => {
   });
 });
 
+// Helper to exit all students currently marked INSIDE Classroom 1
+async function exitAllStudentsFromClassroom1(reason: string = 'Manual Admin Sweep'): Promise<number> {
+  const insideIndices = Object.keys(db.currentStatuses).filter(
+    idx => db.currentStatuses[idx] === 'INSIDE'
+  );
+
+  if (insideIndices.length === 0) {
+    return 0;
+  }
+
+  const now = new Date();
+  const colomboDate = getColomboDateString(now);
+  const colomboTime = getColomboTimeString(now);
+  const greeting = getGreetingForColombo(now);
+
+  for (const indexNumber of insideIndices) {
+    const student = db.students[indexNumber] || {
+      indexNumber,
+      studentName: indexNumber,
+    };
+
+    const transaction: TransactionRecord = {
+      id: `TXN-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`,
+      studentIndexNumber: student.indexNumber,
+      studentName: student.studentName,
+      venue: 'Classroom 1',
+      type: 'EXIT',
+      date: colomboDate,
+      timestamp: now.toISOString(),
+      formattedTime: colomboTime,
+      greeting,
+      statusAfter: 'OUTSIDE',
+      googleEmail: student.googleEmail,
+      googleUid: student.googleUid,
+      correctionReason: reason,
+    };
+
+    db.transactions.push(transaction);
+    db.currentStatuses[indexNumber] = 'OUTSIDE';
+
+    // Push to Cloud Firestore in background
+    pushTransactionToFirestore(transaction).catch(err => {
+      console.warn('[Server Firebase] Exit-all transaction push notice:', err);
+    });
+  }
+
+  saveDatabase(db);
+  return insideIndices.length;
+}
+
+// 3b. Protected: Exit All Students from Classroom 1 (Admin ONLY)
+app.post('/api/admin/occupancy/exit-all', requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const exitedCount = await exitAllStudentsFromClassroom1('Admin Manual Exit All');
+    res.json({
+      success: true,
+      count: exitedCount,
+      message: exitedCount > 0
+        ? `Successfully checked out all ${exitedCount} students from Classroom 1.`
+        : 'Classroom 1 is already empty.',
+      currentOccupancy: 0,
+    });
+  } catch (err: any) {
+    console.error('Exit all error:', err);
+    res.status(500).json({ error: err.message || 'Failed to exit students.' });
+  }
+});
+
+// Midnight (12:00 AM) Automatic Exit Sweep for Classroom 1 (Asia/Colombo timezone)
+let lastMidnightSweepDate = '';
+
+function checkMidnightSweep() {
+  try {
+    const now = new Date();
+    const colomboDate = getColomboDateString(now);
+
+    // Calculate current hour and minute in Asia/Colombo
+    const hourStr = new Intl.DateTimeFormat('en-US', {
+      timeZone: COLOMBO_TIMEZONE,
+      hour: 'numeric',
+      hourCycle: 'h23',
+    }).format(now);
+    const minuteStr = new Intl.DateTimeFormat('en-US', {
+      timeZone: COLOMBO_TIMEZONE,
+      minute: 'numeric',
+    }).format(now);
+
+    const hour = parseInt(hourStr, 10);
+    const minute = parseInt(minuteStr, 10);
+
+    // Trigger at 00:00 (12:00 AM midnight Colombo time) once per calendar day
+    if (hour === 0 && minute === 0 && lastMidnightSweepDate !== colomboDate) {
+      lastMidnightSweepDate = colomboDate;
+      console.log(`[Classroom 1 Midnight Sweep] 12:00 AM Midnight reached in Asia/Colombo for ${colomboDate}. Checking occupancy...`);
+      exitAllStudentsFromClassroom1('Midnight Automatic Sweep (12:00 AM Asia/Colombo)')
+        .then(count => {
+          if (count > 0) {
+            console.log(`[Classroom 1 Midnight Sweep] Automatically checked out ${count} students remaining in Classroom 1 at 12:00 AM.`);
+          } else {
+            console.log(`[Classroom 1 Midnight Sweep] Classroom 1 was already empty at 12:00 AM.`);
+          }
+        })
+        .catch(err => {
+          console.error('[Classroom 1 Midnight Sweep Error]:', err);
+        });
+    }
+  } catch (err) {
+    console.warn('[Classroom 1 Midnight Sweep Warning]:', err);
+  }
+}
+
+// Check every 30 seconds
+setInterval(checkMidnightSweep, 30000);
+
 // 4. Today's Attendance Summary Endpoint (Public for both User and Admin)
 app.get('/api/summary/today', (_req: Request, res: Response) => {
   const today = getColomboDateString();
@@ -1203,6 +1322,11 @@ app.post('/api/students/link-google', (req: Request, res: Response) => {
   student.linkedAt = new Date().toISOString();
   saveDatabase(db);
 
+  // Sync to Cloud Firestore in background
+  pushStudentLinkToFirestore(student.indexNumber, cleanEmail, cleanUid).catch(err => {
+    console.warn('[Server Firebase] Link sync notice:', err);
+  });
+
   const currentStatus = db.currentStatuses[student.indexNumber] || 'OUTSIDE';
   res.json({
     success: true,
@@ -1307,6 +1431,11 @@ app.post('/api/transactions', (req: Request, res: Response) => {
     db.transactions.push(transaction);
     db.currentStatuses[indexNumber] = newStatus;
     saveDatabase(db);
+
+    // Push to Cloud Firestore asynchronously
+    pushTransactionToFirestore(transaction).catch(err => {
+      console.warn('[Server Firebase] Transaction push notice:', err);
+    });
 
     const confirmationMessage =
       type === 'ENTRY' ? 'You have entered Classroom 1.' : 'You are leaving Classroom 1.';
@@ -1790,6 +1919,25 @@ app.post('/api/database/restore-transactions-from-firestore', requireAdmin, (req
   });
 });
 
+// 19. Full Bidirectional Sync from Cloud Firestore
+app.post('/api/database/sync-all-from-firestore', async (_req: Request, res: Response) => {
+  try {
+    const hyd = await hydrateServerFromFirestore(db as any);
+    saveDatabase(db);
+    res.json({
+      success: true,
+      message: `Successfully synchronized from Cloud Firestore: ${hyd.studentsCount} students, ${hyd.transactionsCount} transactions, ${hyd.occupancyCount} occupancy records.`,
+      stats: {
+        totalStudents: Object.keys(db.students).length,
+        totalTransactions: db.transactions.length,
+        studentsCurrentlyInside: Object.values(db.currentStatuses).filter(s => s === 'INSIDE').length,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Firestore synchronization failed.' });
+  }
+});
+
 // API 404 handler: ensure non-existent API endpoints return JSON, never HTML
 app.all('/api/*', (req: Request, res: Response) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
@@ -1810,6 +1958,15 @@ app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
 const isProduction = process.env.NODE_ENV === 'production';
 
 async function startServer() {
+  // 1. Automatic Server Boot Hydration from Cloud Firestore
+  try {
+    const hyd = await hydrateServerFromFirestore(db as any);
+    saveDatabase(db);
+    console.log(`[Classroom 1 Server Boot] Successfully hydrated from Cloud Firestore: ${hyd.studentsCount} students, ${hyd.transactionsCount} transactions, ${hyd.occupancyCount} occupancy.`);
+  } catch (syncErr) {
+    console.warn('[Classroom 1 Server Boot] Firestore initial sync notice:', syncErr);
+  }
+
   if (!isProduction) {
     const vite = await createViteServer({
       server: { middlewareMode: true },

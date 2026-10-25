@@ -76,6 +76,8 @@ service cloud.firestore {
       return data.keys().hasAll(['indexNumber', 'status']) &&
         data.indexNumber is string && data.indexNumber.size() <= 64 &&
         (data.status == 'INSIDE' || data.status == 'OUTSIDE') &&
+        (!('studentName' in data) || (data.studentName is string && data.studentName.size() <= 128)) &&
+        (!('lastFormattedTime' in data) || (data.lastFormattedTime is string && data.lastFormattedTime.size() <= 32)) &&
         (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
     }
 

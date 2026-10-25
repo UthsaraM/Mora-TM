@@ -92,6 +92,12 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Time & Live Timezone Area (Asia/Colombo) */}
           <div className="flex flex-wrap items-center gap-2.5">
+            {/* Live Firestore Cloud Sync Badge */}
+            <div className="hidden lg:flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-mono px-2.5 py-1.5 rounded-lg font-semibold shadow-2xs" title="Real-Time Google Cloud Firestore Synchronization Active">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>Firebase: Connected & Live</span>
+            </div>
+
             <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1 text-left hidden sm:block">
               <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-medium">
                 <Calendar className="w-3 h-3 text-slate-400" />

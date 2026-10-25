@@ -51,6 +51,7 @@ import {
   fetchHistoricalTransactionsFromFirestore,
   restoreTransactionsFromFirestore,
   getFirestoreTransactionCount,
+  syncAllWithServerFromFirestore,
 } from '../lib/firebase';
 import { generateDailyReportPDF } from '../utils/pdfReport';
 import { safeFetchJson } from '../utils/safeFetch';
@@ -129,6 +130,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [attendanceSearch, setAttendanceSearch] = useState('');
   const [allTransactions, setAllTransactions] = useState<TransactionRecord[]>(recentTransactions);
   const [isLoadingTxs, setIsLoadingTxs] = useState(false);
+
+  // Exit All from Classroom 1 states
+  const [isExitAllModalOpen, setIsExitAllModalOpen] = useState(false);
+  const [isExitingAll, setIsExitingAll] = useState(false);
+  const [exitAllFeedback, setExitAllFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Report state
   const [reportDate, setReportDate] = useState(getColomboDateString());
@@ -262,6 +268,72 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         message: `Sync warning: ${err.message || 'Check network connection'}`,
         type: 'error',
       });
+    }
+  };
+
+  const handleFullSyncFromFirebase = async () => {
+    setFirestoreSyncResult({
+      loading: true,
+      message: 'Pulling and synchronizing all data from Cloud Firestore to Server...',
+      type: null,
+    });
+    try {
+      const result = await syncAllWithServerFromFirestore();
+      if (result.success) {
+        setFirestoreSyncResult({
+          loading: false,
+          message: result.message,
+          type: 'success',
+        });
+        await onRefreshAllData();
+        await fetchAttendanceLogs(selectedLogDate, logSearchQuery);
+      } else {
+        setFirestoreSyncResult({
+          loading: false,
+          message: result.message || 'Sync failed.',
+          type: 'error',
+        });
+      }
+    } catch (err: any) {
+      setFirestoreSyncResult({
+        loading: false,
+        message: err.message || 'Sync failed.',
+        type: 'error',
+      });
+    }
+  };
+
+  // Exit All students from Classroom 1
+  const handleConfirmExitAll = async () => {
+    setIsExitingAll(true);
+    setExitAllFeedback(null);
+    try {
+      const res = await fetch('/api/admin/occupancy/exit-all', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to exit students.');
+      }
+      setIsExitAllModalOpen(false);
+      setExitAllFeedback({
+        type: 'success',
+        message: data.message || `Successfully checked out all ${data.count} students.`,
+      });
+      await onRefreshAllData();
+      await fetchAttendanceLogs(selectedLogDate, logSearchQuery);
+      setTimeout(() => setExitAllFeedback(null), 7000);
+    } catch (err: any) {
+      setExitAllFeedback({
+        type: 'error',
+        message: err.message || 'Failed to exit students.',
+      });
+    } finally {
+      setIsExitingAll(false);
     }
   };
 
@@ -1061,15 +1133,55 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <p className="text-xs text-slate-500">
                     Live list of students currently verified inside Classroom 1.
                   </p>
+                  <div className="flex items-center gap-1.5 text-[11px] text-blue-700 font-mono mt-1 font-semibold">
+                    <Clock className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Auto-Exit Sweep Active: 12:00 AM Midnight (Asia/Colombo)</span>
+                  </div>
                 </div>
-                <button
-                  onClick={onRefreshAllData}
-                  className="inline-flex items-center gap-1.5 text-xs text-slate-700 border border-slate-300 px-3 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Refresh</span>
-                </button>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setIsExitAllModalOpen(true)}
+                    disabled={occupancyList.length === 0 || isExitingAll}
+                    className="inline-flex items-center gap-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:hover:bg-red-600 text-white font-bold text-xs px-3.5 py-2 rounded-xl shadow-xs transition-colors cursor-pointer"
+                    title={occupancyList.length > 0 ? `Exit all ${occupancyList.length} students from Classroom 1` : 'Classroom 1 is currently empty'}
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Exit All from Classroom 1</span>
+                    {occupancyList.length > 0 && (
+                      <span className="bg-white/20 text-white px-1.5 py-0.2 rounded text-[10px] font-mono font-bold">
+                        {occupancyList.length}
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={onRefreshAllData}
+                    className="inline-flex items-center gap-1.5 text-xs text-slate-700 border border-slate-300 px-3 py-2 rounded-xl hover:bg-slate-50 cursor-pointer font-medium"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Refresh</span>
+                  </button>
+                </div>
               </div>
+
+              {exitAllFeedback && (
+                <div
+                  className={`p-3 rounded-xl text-xs flex items-center gap-2 font-mono ${
+                    exitAllFeedback.type === 'success'
+                      ? 'bg-emerald-50 text-emerald-900 border border-emerald-200'
+                      : 'bg-red-50 text-red-900 border border-red-200'
+                  }`}
+                >
+                  {exitAllFeedback.type === 'success' ? (
+                    <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                  )}
+                  <span>{exitAllFeedback.message}</span>
+                </div>
+              )}
 
               <div className="border border-slate-200 rounded-xl overflow-hidden">
                 <table className="w-full text-left text-xs">
@@ -1945,6 +2057,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="flex flex-wrap items-center gap-2.5 pt-1">
                 <button
                   type="button"
+                  onClick={handleFullSyncFromFirebase}
+                  disabled={firestoreSyncResult.loading}
+                  className="bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs px-3.5 py-2 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5 disabled:opacity-50 shadow-xs"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${firestoreSyncResult.loading ? 'animate-spin' : ''}`} />
+                  <span>{firestoreSyncResult.loading ? 'Synchronizing...' : 'Pull & Sync from Cloud Firestore'}</span>
+                </button>
+                <button
+                  type="button"
                   onClick={handleTestFirestore}
                   disabled={firestoreTestResult.loading}
                   className="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 font-bold text-xs px-3.5 py-2 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5 disabled:opacity-50"
@@ -1959,7 +2080,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs px-3.5 py-2 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5 disabled:opacity-50 shadow-xs"
                 >
                   <Cloud className="w-3.5 h-3.5" />
-                  <span>{firestoreSyncResult.loading ? 'Syncing...' : `Sync All ${students.length} Students to Firestore`}</span>
+                  <span>{firestoreSyncResult.loading ? 'Syncing...' : `Push All ${students.length} Students to Firestore`}</span>
                 </button>
               </div>
             </div>
@@ -2555,6 +2676,69 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <>
                       <Trash2 className="w-3.5 h-3.5" />
                       <span>Wipe All Logs</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Exit All from Classroom 1 Confirmation Modal */}
+      {isExitAllModalOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-red-200">
+            <div className="px-6 py-4 bg-red-600 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <LogOut className="w-5 h-5 text-red-100" />
+                <h3 className="text-base font-bold font-mono">
+                  EXIT ALL STUDENTS
+                </h3>
+              </div>
+              <span className="text-[11px] font-mono bg-white/20 px-2 py-0.5 rounded font-bold">
+                Classroom 1
+              </span>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-xs text-red-950 space-y-2">
+                <p className="font-bold text-sm text-red-900">
+                  Confirm Checkout for All Students?
+                </p>
+                <p className="leading-relaxed">
+                  This action will immediately record an official <strong>EXIT</strong> transaction for all <strong className="font-mono text-red-800">{occupancyList.length} student{occupancyList.length !== 1 ? 's' : ''}</strong> currently inside Classroom 1 and set the live room occupancy to <strong>0</strong>.
+                </p>
+                <p className="text-[11px] text-red-700">
+                  All exit records will sync to Cloud Firestore and be archived in the daily attendance audit trail.
+                </p>
+              </div>
+
+              {/* Action Buttons: Simple Cancel and Confirm Click */}
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsExitAllModalOpen(false)}
+                  disabled={isExitingAll}
+                  className="px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmExitAll}
+                  disabled={isExitingAll}
+                  className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition-colors cursor-pointer inline-flex items-center gap-2 shadow-md"
+                >
+                  {isExitingAll ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Checking Out Students...</span>
+                    </>
+                  ) : (
+                    <>
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Confirm Exit All</span>
                     </>
                   )}
                 </button>

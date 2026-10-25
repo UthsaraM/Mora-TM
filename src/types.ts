@@ -154,3 +154,14 @@ export interface StudentAttendanceHistory {
   sessions: AttendanceSession[];
 }
 
+export interface DatabaseSchema {
+  students: Record<string, Student>;
+  transactions: TransactionRecord[];
+  currentStatuses: Record<string, StudentStatus>;
+  corrections?: any[];
+  admin?: any;
+  verifiedAdmins?: VerifiedAdmin[];
+  settings?: SystemSettings;
+  meta?: any;
+}
+
